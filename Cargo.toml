@@ -1,0 +1,17 @@
+[package]
+name = "online-python"
+version = "0.1.0"
+authors = ["sebasv <mail@sebastiaanvermeulen.nl>"]
+
+[lib]
+name = "online_python"
+crate-type = ["cdylib"]
+
+
+[dependencies]
+numpy = "0.4.0"
+ndarray = "0.12"
+
+[dependencies.pyo3]
+version = "0.5.2"
+features = ["extension-module"]
