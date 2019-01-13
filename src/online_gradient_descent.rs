@@ -1,4 +1,5 @@
-use ndarray::{Array1, ArrayView1, ArrayViewMut1};
+use ndarray::{Array1, Array2, ArrayView1, ArrayView2, ArrayViewMut1};
+use util::project_simplex;
 
 pub struct GradientDescent {
     t: usize,
@@ -19,54 +20,72 @@ impl GradientDescent {
         let g = self.grad(x.view(), r);
         x.scaled_add(self.a / self.t as f64, &g);
         self.t += 1;
-        self.project(x);
+        project_simplex(x);
     }
 
     fn grad(&self, x: ArrayView1<f64>, r: ArrayView1<f64>) -> Array1<f64> {
         let xr = x.dot(&r);
-        let factor = 1f64 / xr - 2f64 * self.lambda * xr.ln() / xr;
+        let factor = 1f64 / xr - 2f64 * self.lambda * xr.ln().min(0f64) / xr;
         &r * factor
-    }
-
-    fn project(&self, mut x: ArrayViewMut1<f64>) {
-        let mut y = x.to_owned();
-        y.as_slice_mut()
-            .expect("x is not contiguous, slicing failed")
-            .sort_unstable_by(|a, b| a.partial_cmp(b).expect("cannot process nans"));
-        let mut s = y.sum() - 1f64;
-        let mut sub = 0f64;
-        let mut prev = 0f64;
-        let mut nrem = y.len();
-        for &yi in y.iter() {
-            let diff = yi - prev;
-            if s > diff * nrem as f64 {
-                sub += diff;
-                s -= diff * nrem as f64;
-                prev = yi;
-                nrem -= 1;
-            } else {
-                sub += s / nrem as f64;
-                break;
-            }
-        }
-        for xi in x.iter_mut() {
-            *xi = 0f64.max(*xi - sub);
-        }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn projection() {
-        let N = 10;
-        let mut x = Array1::ones(N) / (N as f64);
-        // let mut x_ = Array1::ones(N) / (N as f64);
-        let mut gd = GradientDescent::new(1.0);
-        gd.project(x.view_mut());
-        assert!(x.sum() <= 1f64);
-        assert!(x.sum() + (N as f64) * ::std::f64::EPSILON >= 1f64);
-        assert!(x.fold(&1.0, |a, b| if a < b { a } else { b }) >= &0f64);
+pub fn step_all(a: f64, lambda: f64, x0: ArrayView1<f64>, data: ArrayView2<f64>) -> Array2<f64> {
+    let mut gd = GradientDescent::new(a, lambda);
+    let mut x = x0.to_owned();
+    let mut out = Array2::zeros((data.shape()[0], 3));
+    for (r, mut o) in data.outer_iter().zip(out.outer_iter_mut()) {
+        o[0] = x.dot(&r);
+        o[1] = x[0];
+        let prev = &x * &r;
+        gd.step(x.view_mut(), r);
+        o[2] = (&prev - &x).mapv(f64::abs).scalar_sum();
     }
+    out
+}
+
+pub fn step_constituents(
+    a: f64,
+    lambda: f64,
+    x0: ArrayView1<f64>,
+    r: ArrayView2<f64>,
+    m: ArrayView2<bool>,
+) -> Array1<f64> {
+    let mut gd = GradientDescent::new(a, lambda);
+
+    let (T, K) = r.dim();
+    let mut out = Array1::ones(T - 1);
+    let mut x = x0.to_owned();
+    // let mut n = Array1::from_elem(K, false);
+    for (((ri, mi), mut oi), fut_ri) in r
+        .outer_iter()
+        .zip(m.outer_iter())
+        .zip(out.iter_mut())
+        .zip(r.outer_iter().skip(1))
+    {
+        let active_set = mi
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &mij)| if mij { Some(i) } else { None })
+            .collect::<Vec<usize>>();
+        let mut y = Array1::from_iter(active_set.iter().map(|i| x[*i]));
+        y /= y.scalar_sum();
+        let z = Array1::from_iter(active_set.iter().map(|i| ri[*i]));
+
+        gd.step(y.view_mut(), z.view());
+
+        *oi = y.dot(&Array1::from_iter(active_set.iter().map(|i| fut_ri[*i])));
+
+        let mut y_iter = y.iter();
+        let w1 = y.len() as f64 / K as f64;
+        let w2 = 1f64 - w1; // (1f64 - w1) / x.scalar_sum();
+        for (&mij, mut xj) in mi.iter().zip(x.iter_mut()) {
+            *xj = if mij {
+                y_iter.next().unwrap() * w1
+            } else {
+                *xj * w2
+            };
+        }
+    }
+    out
 }
