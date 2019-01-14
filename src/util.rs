@@ -32,8 +32,13 @@ pub fn grad(x: ArrayView1<f64>, r: ArrayView1<f64>, lambda: f64, cost: f64) -> A
 /// which can be transacted free of charge.
 /// The total transaction costs are cost*a.mapv(f64::abs).scalar_sum().
 /// The amount of cash sold is cost*a.mapv(f64::abs).scalar_sum() - a.scalar_sum().
+/// 
+/// # Panics
+/// 
+/// If any vector contains nans.
 pub fn transaction_cost(w: ArrayView1<f64>, x: ArrayView1<f64>, cost: f64) -> Array1<f64> {
     let d = &w - &x;
+    assert!(d.fold(true, |acc, di| acc && !di.is_nan()));
     let mut s = d.mapv(f64::signum);
     let mut a = &d + &(&x * cost * s.dot(&d) / (1f64 - cost * s.dot(&x)));
     let mut t = a.mapv(f64::signum);

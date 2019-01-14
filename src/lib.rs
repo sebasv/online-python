@@ -13,9 +13,12 @@ extern crate rand;
 use numpy::{IntoPyArray, PyArray1, PyArray2};
 use pyo3::prelude::*;
 
+const version: &str = "0.0.1";
+
 /// The module docstring
 #[pymodinit]
 fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add("__version__", version)?;
     /// w: current distribution
     /// x: desired distribution
     /// cost: transaction costs
@@ -71,7 +74,7 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
     /// data: matrix of rows of return data
     /// out: growth
     #[pyfn(m, "step_constituents")]
-    fn step_constituents(
+    fn step_constituents_py(
         py: Python,
         a: f64,
         lambda: f64,

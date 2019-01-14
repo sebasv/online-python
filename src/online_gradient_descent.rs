@@ -1,5 +1,5 @@
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2, ArrayViewMut1};
-use util::{grad, project_simplex};
+use util::{grad, project_simplex, transaction_cost};
 
 pub struct GradientDescent {
     t: usize,
@@ -59,6 +59,8 @@ pub fn step_constituents(
     let (T, K) = r.dim();
     let mut out = Array2::ones((T - 1, 3));
     let mut x = x0.to_owned();
+    let mut prev_invested = Array1::zeros(K);
+    prev_invested[0] = 1f64;
 
     for (((ri, mi), mut oi), fut_ri) in r
         .outer_iter()
@@ -75,15 +77,24 @@ pub fn step_constituents(
         let active_sum = y.scalar_sum();
         y /= active_sum;
         let z = Array1::from_iter(active_set.iter().map(|i| ri[*i]));
-        // let prev = &y * &fut_r;
-        let w = &y * &z // TODO calculate ACTUAL transaction costs
 
         gd.step(y.view_mut(), z.view());
 
+        let mut invested = Array1::zeros(K);
+        for (&yi, &i) in y.iter().zip(active_set.iter()) {
+            invested[i] = yi;
+        }
+
         let fut_r = Array1::from_iter(active_set.iter().map(|i| fut_ri[*i]));
-        oi[0] = y.dot(&fut_r);
+        // let transacted = (&invested - &prev_invested).mapv(f64::abs).scalar_sum();
+        let transacted = transaction_cost(prev_invested.view(), invested.view(), cost)
+            .mapv(f64::abs)
+            .scalar_sum();
+        oi[0] = y.dot(&fut_r)*(1f64 - cost*transacted);
         oi[1] = y[0];
-        // oi[2] = (&prev / prev.scalar_sum() - &y).mapv(f64::abs).scalar_sum();
+        oi[2] = transacted;
+        prev_invested = &invested * &fut_ri.mapv(|rij| if rij.is_nan() {0f64} else {rij});
+        prev_invested /= prev_invested.scalar_sum();
 
         let mut y_iter = y.iter();
         let inactive_sum = x.scalar_sum() - active_sum;
