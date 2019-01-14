@@ -10,44 +10,12 @@ extern crate pyo3;
 #[cfg(test)]
 extern crate rand;
 
-// use ndarray::{ArrayD, ArrayViewD, ArrayViewMutD};
-use numpy::{IntoPyArray, PyArray1, PyArray2, ToPyArray};
+use numpy::{IntoPyArray, PyArray1, PyArray2};
 use pyo3::prelude::*;
-
-// // immutable example
-// fn axpy(a: f64, x: ArrayViewD<f64>, y: ArrayViewD<f64>) -> ArrayD<f64> {
-//     a * &x + &y
-// }
-
-// // mutable example (no return)
-// fn mult(a: f64, mut x: ArrayViewMutD<f64>) {
-//     x *= a;
-// }
 
 /// The module docstring
 #[pymodinit]
 fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
-    // // wrapper of `axpy`
-    // #[pyfn(m, "axpy")]
-    // fn axpy_py(
-    //     py: Python,
-    //     a: f64,
-    //     x: &PyArrayDyn<f64>,
-    //     y: &PyArrayDyn<f64>,
-    // ) -> Py<PyArrayDyn<f64>> {
-    //     let x = x.as_array();
-    //     let y = y.as_array();
-    //     axpy(a, x, y).into_pyarray(py).to_owned()
-    // }
-
-    // // wrapper of `mult`
-    // #[pyfn(m, "mult")]
-    // fn mult_py(_py: Python, a: f64, x: &PyArrayDyn<f64>) -> PyResult<()> {
-    //     let x = x.as_array_mut();
-    //     mult(a, x);
-    //     Ok(())
-    // }
-
     /// w: current distribution
     /// x: desired distribution
     /// cost: transaction costs
@@ -87,10 +55,11 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
         py: Python,
         a: f64,
         lambda: f64,
+        cost: f64,
         x0: &PyArray1<f64>,
         data: &PyArray2<f64>,
     ) -> Py<PyArray2<f64>> {
-        online_gradient_descent::step_all(a, lambda, x0.as_array(), data.as_array())
+        online_gradient_descent::step_all(a, lambda, cost, x0.as_array(), data.as_array())
             .into_pyarray(py)
             .to_owned()
     }
@@ -106,6 +75,7 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
         py: Python,
         a: f64,
         lambda: f64,
+        cost: f64,
         x0: &PyArray1<f64>,
         r: &PyArray2<f64>,
         m: &PyArray2<bool>,
@@ -113,6 +83,7 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
         online_gradient_descent::step_constituents(
             a,
             lambda,
+            cost,
             x0.as_array(),
             r.as_array(),
             m.as_array(),
@@ -135,9 +106,9 @@ struct GradientDescent {
 #[pymethods]
 impl GradientDescent {
     #[new]
-    fn __new__(obj: &PyRawObject, alpha: f64, gamma: f64) -> PyResult<()> {
+    fn __new__(obj: &PyRawObject, alpha: f64, gamma: f64, cost: f64) -> PyResult<()> {
         obj.init(|_| GradientDescent {
-            gd: online_gradient_descent::GradientDescent::new(alpha, gamma),
+            gd: online_gradient_descent::GradientDescent::new(alpha, gamma, cost),
         })
     }
 
@@ -167,9 +138,16 @@ struct Newton {
 #[pymethods]
 impl Newton {
     #[new]
-    fn __new__(obj: &PyRawObject, beta: f64, eps: f64, n: usize, gamma: f64) -> PyResult<()> {
+    fn __new__(
+        obj: &PyRawObject,
+        beta: f64,
+        eps: f64,
+        n: usize,
+        gamma: f64,
+        cost: f64,
+    ) -> PyResult<()> {
         obj.init(|_| Newton {
-            gd: online_newton::Newton::new(beta, eps, n, gamma),
+            gd: online_newton::Newton::new(beta, eps, n, gamma, cost),
         })
     }
 

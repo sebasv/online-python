@@ -1,5 +1,22 @@
 use ndarray::prelude::*;
 
+/// The gradient of the log-risk adjusted growth:
+///     
+///     `x.dot(&r).ln() - (1f64 - cost * a.mapv(f64::abs).scalar_sum()).ln() - lambda * x.dot(&r).ln().pow(2)`
+///
+/// Set cost=0 to eliminate transaction costs,
+/// set lambda=0 to eliminate risk adjustment.
+pub fn grad(x: ArrayView1<f64>, r: ArrayView1<f64>, lambda: f64, cost: f64) -> Array1<f64> {
+    let mut x_r = &x * &r;
+    x_r /= x_r.scalar_sum() + 1f64 - x.scalar_sum(); // such that the amount invested in cash remains the same
+    let a = transaction_cost(x_r.view(), x, cost);
+    let s = a.mapv(f64::signum);
+
+    let xr = x.dot(&r);
+    let factor = 1f64 / xr - 2f64 * lambda * xr.ln().min(0f64) / xr;
+    &r * factor + cost * &s / (1f64 - cost * s.dot(&a))
+}
+
 /// To rebalance fractions w_i to fractions x_i at cost cost, we must subtract
 /// a_i from w_i such that
 ///     w_i - a_i = x_i * (1 - cost * a.mapv(f64::abs).scalar_sum()),

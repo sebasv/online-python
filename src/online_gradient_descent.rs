@@ -1,37 +1,39 @@
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2, ArrayViewMut1};
-use util::project_simplex;
+use util::{grad, project_simplex};
 
 pub struct GradientDescent {
     t: usize,
     a: f64,
     lambda: f64,
+    cost: f64,
 }
 
 impl GradientDescent {
-    pub fn new(a: f64, lambda: f64) -> GradientDescent {
+    pub fn new(a: f64, lambda: f64, cost: f64) -> GradientDescent {
         GradientDescent {
             t: 1,
             a: 1f64 / a,
-            lambda: lambda,
+            lambda,
+            cost,
         }
     }
 
     pub fn step(&mut self, mut x: ArrayViewMut1<f64>, r: ArrayView1<f64>) {
-        let g = self.grad(x.view(), r);
+        let g = grad(x.view(), r, self.lambda, self.cost);
         x.scaled_add(self.a / self.t as f64, &g);
         self.t += 1;
         project_simplex(x);
     }
-
-    fn grad(&self, x: ArrayView1<f64>, r: ArrayView1<f64>) -> Array1<f64> {
-        let xr = x.dot(&r);
-        let factor = 1f64 / xr - 2f64 * self.lambda * xr.ln().min(0f64) / xr;
-        &r * factor
-    }
 }
 
-pub fn step_all(a: f64, lambda: f64, x0: ArrayView1<f64>, data: ArrayView2<f64>) -> Array2<f64> {
-    let mut gd = GradientDescent::new(a, lambda);
+pub fn step_all(
+    a: f64,
+    lambda: f64,
+    cost: f64,
+    x0: ArrayView1<f64>,
+    data: ArrayView2<f64>,
+) -> Array2<f64> {
+    let mut gd = GradientDescent::new(a, lambda, cost);
     let mut x = x0.to_owned();
     let mut out = Array2::zeros((data.shape()[0], 3));
     for (r, mut o) in data.outer_iter().zip(out.outer_iter_mut()) {
@@ -47,11 +49,12 @@ pub fn step_all(a: f64, lambda: f64, x0: ArrayView1<f64>, data: ArrayView2<f64>)
 pub fn step_constituents(
     a: f64,
     lambda: f64,
+    cost: f64,
     x0: ArrayView1<f64>,
     r: ArrayView2<f64>,
     m: ArrayView2<bool>,
 ) -> Array2<f64> {
-    let mut gd = GradientDescent::new(a, lambda);
+    let mut gd = GradientDescent::new(a, lambda, cost);
 
     let (T, K) = r.dim();
     let mut out = Array2::ones((T - 1, 3));
@@ -73,6 +76,7 @@ pub fn step_constituents(
         y /= active_sum;
         let z = Array1::from_iter(active_set.iter().map(|i| ri[*i]));
         // let prev = &y * &fut_r;
+        let w = &y * &z // TODO calculate ACTUAL transaction costs
 
         gd.step(y.view_mut(), z.view());
 

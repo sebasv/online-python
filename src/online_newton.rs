@@ -1,4 +1,5 @@
-use ndarray::{Array1, Array2, ArrayView1, ArrayViewMut1};
+use ndarray::{Array2, ArrayView1, ArrayViewMut1};
+use util::grad;
 
 pub struct Newton {
     #[allow(non_snake_case)]
@@ -7,20 +8,22 @@ pub struct Newton {
     A: Array2<f64>,
     beta: f64,
     lambda: f64,
+    cost: f64,
 }
 
 impl Newton {
-    pub fn new(beta: f64, eps: f64, n: usize, lambda: f64) -> Newton {
+    pub fn new(beta: f64, eps: f64, n: usize, lambda: f64, cost: f64) -> Newton {
         Newton {
             A: Array2::eye(n) * eps,
             Ai: Array2::eye(n) / eps,
-            beta: beta,
-            lambda: lambda,
+            beta,
+            lambda,
+            cost,
         }
     }
 
     pub fn step(&mut self, mut x: ArrayViewMut1<f64>, r: ArrayView1<f64>) {
-        let g = self.grad(x.view(), r);
+        let g = grad(x.view(), r, self.lambda, self.cost);
         self.update_A(g.view());
         x -= &(self.Ai.dot(&g) / self.beta);
         self.project(x);
@@ -28,12 +31,6 @@ impl Newton {
 
     fn project(&self, mut x: ArrayViewMut1<f64>) {
         // TODO solve how to efficiently minimize_y (x-y)'self.A(x-y)
-    }
-
-    fn grad(&self, x: ArrayView1<f64>, r: ArrayView1<f64>) -> Array1<f64> {
-        let xr = x.dot(&r);
-        let factor = 1f64 / xr - 2f64 * self.lambda * xr.ln() / xr;
-        &r * factor
     }
 
     #[allow(non_snake_case)]
