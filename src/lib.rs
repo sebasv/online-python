@@ -109,14 +109,15 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
         x0: &PyArray1<f64>,
         r: &PyArray2<f64>,
         m: &PyArray2<bool>,
-    ) -> Py<PyArray1<f64>> {
+    ) -> Py<PyArray2<f64>> {
         online_gradient_descent::step_constituents(
             a,
             lambda,
             x0.as_array(),
             r.as_array(),
             m.as_array(),
-        ).into_pyarray(py)
+        )
+        .into_pyarray(py)
         .to_owned()
     }
 

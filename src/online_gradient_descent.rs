@@ -50,17 +50,17 @@ pub fn step_constituents(
     x0: ArrayView1<f64>,
     r: ArrayView2<f64>,
     m: ArrayView2<bool>,
-) -> Array1<f64> {
+) -> Array2<f64> {
     let mut gd = GradientDescent::new(a, lambda);
 
     let (T, K) = r.dim();
-    let mut out = Array1::ones(T - 1);
+    let mut out = Array2::ones((T - 1, 3));
     let mut x = x0.to_owned();
-    // let mut n = Array1::from_elem(K, false);
+
     for (((ri, mi), mut oi), fut_ri) in r
         .outer_iter()
         .zip(m.outer_iter())
-        .zip(out.iter_mut())
+        .zip(out.outer_iter_mut())
         .zip(r.outer_iter().skip(1))
     {
         let active_set = mi
@@ -69,16 +69,22 @@ pub fn step_constituents(
             .filter_map(|(i, &mij)| if mij { Some(i) } else { None })
             .collect::<Vec<usize>>();
         let mut y = Array1::from_iter(active_set.iter().map(|i| x[*i]));
-        y /= y.scalar_sum();
+        let active_sum = y.scalar_sum();
+        y /= active_sum;
         let z = Array1::from_iter(active_set.iter().map(|i| ri[*i]));
+        // let prev = &y * &fut_r;
 
         gd.step(y.view_mut(), z.view());
 
-        *oi = y.dot(&Array1::from_iter(active_set.iter().map(|i| fut_ri[*i])));
+        let fut_r = Array1::from_iter(active_set.iter().map(|i| fut_ri[*i]));
+        oi[0] = y.dot(&fut_r);
+        oi[1] = y[0];
+        // oi[2] = (&prev / prev.scalar_sum() - &y).mapv(f64::abs).scalar_sum();
 
         let mut y_iter = y.iter();
+        let inactive_sum = x.scalar_sum() - active_sum;
         let w1 = y.len() as f64 / K as f64;
-        let w2 = 1f64 - w1; // (1f64 - w1) / x.scalar_sum();
+        let w2 = (1f64 - w1) / inactive_sum;
         for (&mij, mut xj) in mi.iter().zip(x.iter_mut()) {
             *xj = if mij {
                 y_iter.next().unwrap() * w1
