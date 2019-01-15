@@ -1,4 +1,5 @@
 use ndarray::prelude::*;
+use super::Error;
 
 /// The gradient of the log-risk adjusted growth:
 ///     
@@ -6,15 +7,16 @@ use ndarray::prelude::*;
 ///
 /// Set cost=0 to eliminate transaction costs,
 /// set lambda=0 to eliminate risk adjustment.
-pub fn grad(x: ArrayView1<f64>, r: ArrayView1<f64>, lambda: f64, cost: f64) -> Array1<f64> {
+pub fn grad(x: ArrayView1<f64>, r: ArrayView1<f64>, lambda: f64, cost: f64) -> Result<Array1<f64>, Error> {
     let mut x_r = &x * &r;
+
     x_r /= x_r.scalar_sum() + 1f64 - x.scalar_sum(); // such that the amount invested in cash remains the same
-    let a = transaction_cost(x_r.view(), x, cost);
+    let a = transaction_cost(x_r.view(), x, cost)?;
     let s = a.mapv(f64::signum);
 
     let xr = x.dot(&r);
     let factor = 1f64 / xr - 2f64 * lambda * xr.ln().min(0f64) / xr;
-    &r * factor + cost * &s / (1f64 - cost * s.dot(&a))
+    Ok(&r * factor + cost * &s / (1f64 - cost * s.dot(&a)))
 }
 
 /// To rebalance fractions w_i to fractions x_i at cost cost, we must subtract
@@ -33,21 +35,21 @@ pub fn grad(x: ArrayView1<f64>, r: ArrayView1<f64>, lambda: f64, cost: f64) -> A
 /// The total transaction costs are cost*a.mapv(f64::abs).scalar_sum().
 /// The amount of cash sold is cost*a.mapv(f64::abs).scalar_sum() - a.scalar_sum().
 /// 
-/// # Panics
-/// 
-/// If any vector contains nans.
-pub fn transaction_cost(w: ArrayView1<f64>, x: ArrayView1<f64>, cost: f64) -> Array1<f64> {
+/// Returns a NaNError if either w or x contain nans, since the algorithm would loop indefinitely on NaNs.
+pub fn transaction_cost(w: ArrayView1<f64>, x: ArrayView1<f64>, cost: f64) -> Result<Array1<f64>, Error> {
     let d = &w - &x;
-    assert!(d.fold(true, |acc, di| acc && !di.is_nan()));
+    if d.fold(false, |acc, di| acc || di.is_nan()) {return Err(Error::NaNError("cannot calculate transaction costs over vector containing nans"))}
+
     let mut s = d.mapv(f64::signum);
     let mut a = &d + &(&x * cost * s.dot(&d) / (1f64 - cost * s.dot(&x)));
     let mut t = a.mapv(f64::signum);
+    
     while !t.all_close(&s, 0.1) {
         s = t;
         a = &d + &(&x * cost * s.dot(&d) / (1f64 - cost * s.dot(&x)));
         t = a.mapv(f64::signum);
     }
-    a
+    Ok(a)
 }
 
 /// Projection onto the simplex. Essentially, this constitutes a projection
@@ -56,11 +58,16 @@ pub fn transaction_cost(w: ArrayView1<f64>, x: ArrayView1<f64>, cost: f64) -> Ar
 /// by subtracting an equal amount of all coordinates, an then setting the
 /// negative coordinates to 0. A single iteration suffices to find what amount
 /// needs to be subtracted.
-pub fn project_simplex(mut x: ArrayViewMut1<f64>) {
+/// 
+/// Returns a NaNError or ContiguityError if the sorting of x fails.
+pub fn project_simplex(mut x: ArrayViewMut1<f64>) -> Result<(), Error> {
+    if x.fold(false, |acc, xi| acc || xi.is_nan()) {return Err(Error::NaNError("cannot project vector containing nans"))}
     let mut y = x.to_owned();
     y.as_slice_mut()
-        .expect("x is not contiguous, slicing failed")
-        .sort_unstable_by(|a, b| a.partial_cmp(b).expect("cannot process nans"));
+        .ok_or(Error::ContiguityError("cannot project vector that is not contiguous"))?
+        // .expect("x is not contiguous, slicing failed")
+        .sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+        // .expect("cannot process nans"));
     let mut s = y.sum() - 1f64;
     let mut sub = 0f64;
     let mut prev = 0f64;
@@ -77,9 +84,11 @@ pub fn project_simplex(mut x: ArrayViewMut1<f64>) {
             break;
         }
     }
-    for xi in x.iter_mut() {
-        *xi = 0f64.max(*xi - sub);
-    }
+    x.mapv_inplace(|xi| 0f64.max(xi - sub));
+    // for xi in x.iter_mut() {
+    //     *xi = 0f64.max(*xi - sub);
+    // }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -90,8 +99,7 @@ mod tests {
     fn test_projection() {
         let N = 10;
         let mut x = Array1::ones(N) / (N as f64);
-        // let mut x_ = Array1::ones(N) / (N as f64);
-        project_simplex(x.view_mut());
+        project_simplex(x.view_mut()).unwrap();
         assert!(x.sum() <= 1f64);
         assert!(x.sum() + (N as f64) * ::std::f64::EPSILON >= 1f64);
         assert!(x.fold(&1.0, |a, b| if a < b { a } else { b }) >= &0f64);
@@ -105,7 +113,7 @@ mod tests {
         let mut x = Array1::from_shape_fn(shape, |_| rand::random::<f64>());
         x /= x.scalar_sum();
         let c = 0.002;
-        let a = transaction_cost(w.view(), x.view(), c);
+        let a = transaction_cost(w.view(), x.view(), c).unwrap();
         let cost = c * a.mapv(f64::abs).scalar_sum();
         println!("{}", &(&w - &a) - &(&x * (1f64 - cost)));
         assert!((&w - &a).all_close(&(&x * (1f64 - cost)), 1e-16));

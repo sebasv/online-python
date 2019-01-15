@@ -1,5 +1,6 @@
 use ndarray::{Array2, ArrayView1, ArrayViewMut1};
 use util::grad;
+use super::Error;
 
 pub struct Newton {
     #[allow(non_snake_case)]
@@ -22,11 +23,12 @@ impl Newton {
         }
     }
 
-    pub fn step(&mut self, mut x: ArrayViewMut1<f64>, r: ArrayView1<f64>) {
-        let g = grad(x.view(), r, self.lambda, self.cost);
+    pub fn step(&mut self, mut x: ArrayViewMut1<f64>, r: ArrayView1<f64>) -> Result<(), Error> {
+        let g = grad(x.view(), r, self.lambda, self.cost)?;
         self.update_A(g.view());
         x -= &(self.Ai.dot(&g) / self.beta);
         self.project(x);
+        Ok(())
     }
 
     fn project(&self, mut x: ArrayViewMut1<f64>) {

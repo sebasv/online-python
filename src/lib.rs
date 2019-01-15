@@ -2,9 +2,11 @@
 mod online_gradient_descent;
 mod online_newton;
 mod util;
+mod version;
 
 extern crate ndarray;
 extern crate numpy;
+// #[macro_use]
 extern crate pyo3;
 
 #[cfg(test)]
@@ -13,12 +15,26 @@ extern crate rand;
 use numpy::{IntoPyArray, PyArray1, PyArray2};
 use pyo3::prelude::*;
 
-const version: &str = "0.0.1";
+#[derive(Debug)]
+pub enum Error {
+    NaNError(&'static str),
+    ContiguityError(&'static str),
+}
+
+impl std::convert::From<Error> for PyErr {
+    fn from(err: Error) -> PyErr {
+        match err {
+            Error::NaNError(x) => pyo3::exceptions::ValueError::py_err(x),
+            Error::ContiguityError(x) => pyo3::exceptions::ValueError::py_err(x),
+        }        
+    }
+}
+
 
 /// The module docstring
 #[pymodinit]
 fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add("__version__", version)?;
+    m.add("__version__", version::PY_VERSION)?;
     /// w: current distribution
     /// x: desired distribution
     /// cost: transaction costs
@@ -32,10 +48,10 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
         w: &PyArray1<f64>,
         x: &PyArray1<f64>,
         cost: f64,
-    ) -> Py<PyArray1<f64>> {
-        util::transaction_cost(w.as_array(), x.as_array(), cost)
+    ) -> PyResult<Py<PyArray1<f64>>> {
+        Ok(util::transaction_cost(w.as_array(), x.as_array(), cost)?
             .into_pyarray(py)
-            .to_owned()
+            .to_owned())
     }
 
     /// fn project(x)
@@ -43,7 +59,7 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
     /// x is projected in-place.
     #[pyfn(m, "project_simplex")]
     fn project_py(_py: Python, x: &PyArray1<f64>) -> PyResult<()> {
-        util::project_simplex(x.as_array_mut());
+        util::project_simplex(x.as_array_mut())?;
         Ok(())
     }
 
@@ -61,10 +77,10 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
         cost: f64,
         x0: &PyArray1<f64>,
         data: &PyArray2<f64>,
-    ) -> Py<PyArray2<f64>> {
-        online_gradient_descent::step_all(a, lambda, cost, x0.as_array(), data.as_array())
+    ) -> PyResult<Py<PyArray2<f64>>> {
+        Ok(online_gradient_descent::step_all(a, lambda, cost, x0.as_array(), data.as_array())?
             .into_pyarray(py)
-            .to_owned()
+            .to_owned())
     }
 
     /// fn step_constituents(a, lambda, x0, r, m) -> out
@@ -82,17 +98,45 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
         x0: &PyArray1<f64>,
         r: &PyArray2<f64>,
         m: &PyArray2<bool>,
-    ) -> Py<PyArray2<f64>> {
-        online_gradient_descent::step_constituents(
+    ) -> PyResult<Py<PyArray2<f64>>> {
+        Ok(online_gradient_descent::step_constituents(
             a,
             lambda,
             cost,
             x0.as_array(),
             r.as_array(),
             m.as_array(),
-        )
+        )?
         .into_pyarray(py)
-        .to_owned()
+        .to_owned())
+    }
+
+    /// fn step_constituents_fixed(a, lambda, x, r, m) -> out
+    /// a: alpha-exp-concavity (1)
+    /// lambda: risk aversion
+    /// x: fixed allocation
+    /// data: matrix of rows of return data
+    /// out: growth
+    #[pyfn(m, "step_constituents_fixed")]
+    fn step_constituents_fixed_py(
+        py: Python,
+        a: f64,
+        lambda: f64,
+        cost: f64,
+        x: &PyArray1<f64>,
+        r: &PyArray2<f64>,
+        m: &PyArray2<bool>,
+    ) -> PyResult<Py<PyArray2<f64>>> {
+        Ok(online_gradient_descent::step_constituents_fixed(
+            a,
+            lambda,
+            cost,
+            x.as_array(),
+            r.as_array(),
+            m.as_array(),
+        )?
+        .into_pyarray(py)
+        .to_owned())
     }
 
     m.add_class::<GradientDescent>()?;
@@ -116,7 +160,7 @@ impl GradientDescent {
     }
 
     fn step(&mut self, x: &PyArray1<f64>, r: &PyArray1<f64>) -> PyResult<()> {
-        self.gd.step(x.as_array_mut(), r.as_array());
+        self.gd.step(x.as_array_mut(), r.as_array())?;
         Ok(())
     }
 
@@ -155,7 +199,7 @@ impl Newton {
     }
 
     fn step(&mut self, x: &PyArray1<f64>, r: &PyArray1<f64>) -> PyResult<()> {
-        self.gd.step(x.as_array_mut(), r.as_array());
+        self.gd.step(x.as_array_mut(), r.as_array())?;
         Ok(())
     }
 }
