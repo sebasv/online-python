@@ -1,5 +1,5 @@
-use ndarray::prelude::*;
 use super::Error;
+use ndarray::prelude::*;
 
 /// The gradient of the log-risk adjusted growth:
 ///     
@@ -7,7 +7,13 @@ use super::Error;
 ///
 /// Set cost=0 to eliminate transaction costs,
 /// set lambda=0 to eliminate risk adjustment.
-pub fn grad(x: ArrayView1<f64>, r: ArrayView1<f64>, lambda: f64, cost: f64) -> Result<Array1<f64>, Error> {
+#[inline]
+pub fn grad(
+    x: ArrayView1<f64>,
+    r: ArrayView1<f64>,
+    lambda: f64,
+    cost: f64,
+) -> Result<Array1<f64>, Error> {
     let mut x_r = &x * &r;
 
     x_r /= x_r.scalar_sum() + 1f64 - x.scalar_sum(); // such that the amount invested in cash remains the same
@@ -34,16 +40,25 @@ pub fn grad(x: ArrayView1<f64>, r: ArrayView1<f64>, lambda: f64, cost: f64) -> R
 /// which can be transacted free of charge.
 /// The total transaction costs are cost*a.mapv(f64::abs).scalar_sum().
 /// The amount of cash sold is cost*a.mapv(f64::abs).scalar_sum() - a.scalar_sum().
-/// 
+///
 /// Returns a NaNError if either w or x contain nans, since the algorithm would loop indefinitely on NaNs.
-pub fn transaction_cost(w: ArrayView1<f64>, x: ArrayView1<f64>, cost: f64) -> Result<Array1<f64>, Error> {
+#[inline]
+pub fn transaction_cost(
+    w: ArrayView1<f64>,
+    x: ArrayView1<f64>,
+    cost: f64,
+) -> Result<Array1<f64>, Error> {
     let d = &w - &x;
-    if d.fold(false, |acc, di| acc || di.is_nan()) {return Err(Error::NaNError("cannot calculate transaction costs over vector containing nans"))}
+    if d.fold(false, |acc, di| acc || di.is_nan()) {
+        return Err(Error::NaNError(
+            "cannot calculate transaction costs over vector containing nans",
+        ));
+    }
 
     let mut s = d.mapv(f64::signum);
     let mut a = &d + &(&x * cost * s.dot(&d) / (1f64 - cost * s.dot(&x)));
     let mut t = a.mapv(f64::signum);
-    
+
     while !t.all_close(&s, 0.1) {
         s = t;
         a = &d + &(&x * cost * s.dot(&d) / (1f64 - cost * s.dot(&x)));
@@ -58,16 +73,21 @@ pub fn transaction_cost(w: ArrayView1<f64>, x: ArrayView1<f64>, cost: f64) -> Re
 /// by subtracting an equal amount of all coordinates, an then setting the
 /// negative coordinates to 0. A single iteration suffices to find what amount
 /// needs to be subtracted.
-/// 
+///
 /// Returns a NaNError or ContiguityError if the sorting of x fails.
+#[inline]
 pub fn project_simplex(mut x: ArrayViewMut1<f64>) -> Result<(), Error> {
-    if x.fold(false, |acc, xi| acc || xi.is_nan()) {return Err(Error::NaNError("cannot project vector containing nans"))}
+    if x.fold(false, |acc, xi| acc || xi.is_nan()) {
+        return Err(Error::NaNError("cannot project vector containing nans"));
+    }
     let mut y = x.to_owned();
     y.as_slice_mut()
-        .ok_or(Error::ContiguityError("cannot project vector that is not contiguous"))?
+        .ok_or(Error::ContiguityError(
+            "cannot project vector that is not contiguous",
+        ))?
         // .expect("x is not contiguous, slicing failed")
         .sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
-        // .expect("cannot process nans"));
+    // .expect("cannot process nans"));
     let mut s = y.sum() - 1f64;
     let mut sub = 0f64;
     let mut prev = 0f64;
