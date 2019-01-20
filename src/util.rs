@@ -18,7 +18,7 @@ pub fn grad(
     let mut x_r = &x * &r;
 
     x_r /= x_r.scalar_sum() + 1f64 - x.scalar_sum(); // such that the amount invested in cash remains the same
-    let a = transaction_cost(x_r.view(), x, cost)?;
+    let a = transaction_volume(x_r.view(), x, cost)?;
     let s = a.mapv(f64::signum);
 
     let xr = x.dot(&r);
@@ -48,7 +48,7 @@ pub fn grad(
 ///
 /// Returns a NaNError if either w or x contain nans, since the algorithm would loop indefinitely on NaNs.
 #[inline]
-pub fn transaction_cost(
+pub fn transaction_volume(
     w: ArrayView1<f64>,
     x: ArrayView1<f64>,
     cost: f64,
@@ -70,6 +70,11 @@ pub fn transaction_cost(
         t = a.mapv(f64::signum);
     }
     Ok(a)
+}
+
+#[inline]
+pub fn transaction_cost(w: ArrayView1<f64>, x: ArrayView1<f64>, cost: f64) -> Result<f64, Error> {
+    transaction_volume(w, x, cost).map(|a| a.mapv(f64::abs).scalar_sum())
 }
 
 /// Projection onto the simplex. Essentially, this constitutes a projection
@@ -144,7 +149,7 @@ pub fn project_simplex_general(
             .map_err(|_| Error::SolveError(&"could not solve H^{-1} g"))
     };
 
-    let mut m = 1f64;
+    let mut m = 1f64; // TODO educated initial guess
     let mut y_ = x.to_owned();
 
     for _ in 0..max_iter {
@@ -181,11 +186,11 @@ mod tests {
 
     #[test]
     fn test_projection() {
-        let N = 10;
-        let mut x = Array1::ones(N) / (N as f64);
+        let size = 10;
+        let mut x = Array1::ones(size) / (size as f64);
         project_simplex(x.view_mut()).unwrap();
         assert!(x.sum() <= 1f64);
-        assert!(x.sum() + (N as f64) * ::std::f64::EPSILON >= 1f64);
+        assert!(x.sum() + (size as f64) * ::std::f64::EPSILON >= 1f64);
         assert!(x.fold(&1.0, |a, b| if a < b { a } else { b }) >= &0f64);
     }
 
@@ -197,7 +202,7 @@ mod tests {
         let mut x = Array1::from_shape_fn(shape, |_| rand::random::<f64>());
         x /= x.scalar_sum();
         let c = 0.002;
-        let a = transaction_cost(w.view(), x.view(), c).unwrap();
+        let a = transaction_volume(w.view(), x.view(), c).unwrap();
         let cost = c * a.mapv(f64::abs).scalar_sum();
         println!("{}", &(&w - &a) - &(&x * (1f64 - cost)));
         assert!((&w - &a).all_close(&(&x * (1f64 - cost)), 1e-16));

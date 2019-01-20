@@ -18,7 +18,7 @@ features = ["extension-module"]
 
 [dependencies.ndarray-linalg]
 version = "0.10"
-features = ["openblas"]
+features = ["intel-mkl"]
 
 [dev-dependencies]
 rand = "0.6"
