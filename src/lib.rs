@@ -5,6 +5,7 @@ mod util;
 mod version;
 
 extern crate ndarray;
+extern crate ndarray_linalg;
 extern crate numpy;
 extern crate pyo3;
 
@@ -18,6 +19,7 @@ use pyo3::prelude::*;
 pub enum Error {
     NaNError(&'static str),
     ContiguityError(&'static str),
+    SolveError(&'static str),
 }
 
 impl std::convert::From<Error> for PyErr {
@@ -25,6 +27,7 @@ impl std::convert::From<Error> for PyErr {
         match err {
             Error::NaNError(x) => pyo3::exceptions::ValueError::py_err(x),
             Error::ContiguityError(x) => pyo3::exceptions::ValueError::py_err(x),
+            Error::SolveError(x) => pyo3::exceptions::ValueError::py_err(x),
         }
     }
 }
@@ -60,6 +63,20 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
     fn project_py(_py: Python, x: &PyArray1<f64>) -> PyResult<()> {
         util::project_simplex(x.as_array_mut())?;
         Ok(())
+    }
+
+    #[pyfn(m, "project_simplex_general")]
+    fn project_simplex_general_py(
+        py: Python,
+        x: &PyArray1<f64>,
+        pos_def: &PyArray2<f64>,
+        max_iter: usize,
+    ) -> PyResult<Py<PyArray1<f64>>> {
+        Ok(
+            util::project_simplex_general(x.as_array(), pos_def.as_array(), max_iter)?
+                .into_pyarray(py)
+                .to_owned(),
+        )
     }
 
     /// fn step_all(a,lambda, x0, data) -> results
@@ -186,11 +203,12 @@ impl Newton {
         beta: f64,
         eps: f64,
         n: usize,
+        max_iter: usize,
         gamma: f64,
         cost: f64,
     ) -> PyResult<()> {
         obj.init(|_| Newton {
-            gd: online_newton::Newton::new(beta, eps, n, gamma, cost),
+            gd: online_newton::Newton::new(beta, eps, n, max_iter, gamma, cost),
         })
     }
 

@@ -1,22 +1,24 @@
-use ndarray::{Array2, ArrayView1, ArrayViewMut1};
-use util::grad;
 use super::Error;
+use ndarray::{Array2, ArrayView1, ArrayViewMut1};
+use util::{grad, project_simplex_general};
 
 pub struct Newton {
     #[allow(non_snake_case)]
-    Ai: Array2<f64>,
+    approx_hessian_inv: Array2<f64>,
     #[allow(non_snake_case)]
-    A: Array2<f64>,
+    approx_hessian: Array2<f64>,
+    max_iter: usize,
     beta: f64,
     lambda: f64,
     cost: f64,
 }
 
 impl Newton {
-    pub fn new(beta: f64, eps: f64, n: usize, lambda: f64, cost: f64) -> Newton {
+    pub fn new(beta: f64, eps: f64, n: usize, max_iter: usize, lambda: f64, cost: f64) -> Newton {
         Newton {
-            A: Array2::eye(n) * eps,
-            Ai: Array2::eye(n) / eps,
+            approx_hessian: Array2::eye(n) * eps,
+            approx_hessian_inv: Array2::eye(n) / eps,
+            max_iter,
             beta,
             lambda,
             cost,
@@ -25,26 +27,24 @@ impl Newton {
 
     pub fn step(&mut self, mut x: ArrayViewMut1<f64>, r: ArrayView1<f64>) -> Result<(), Error> {
         let g = grad(x.view(), r, self.lambda, self.cost)?;
-        self.update_A(g.view());
-        x -= &(self.Ai.dot(&g) / self.beta);
-        self.project(x);
+        self.update_approx_hessian(g.view());
+        x -= &(self.approx_hessian_inv.dot(&g) / self.beta);
+        let projected =
+            project_simplex_general(x.view(), self.approx_hessian.view(), self.max_iter)?;
+        x.assign(&projected);
         Ok(())
     }
 
-    fn project(&self, mut x: ArrayViewMut1<f64>) {
-        // TODO solve how to efficiently minimize_y (x-y)'self.A(x-y)
-    }
-
     #[allow(non_snake_case)]
-    fn update_A(&mut self, g: ArrayView1<f64>) {
+    fn update_approx_hessian(&mut self, g: ArrayView1<f64>) {
         let v = g
             .into_shape((g.len(), 1))
             .expect("g reshape, should not fail");
 
-        self.A += &(v.dot(&v.t()));
+        self.approx_hessian += &(v.dot(&v.t()));
 
-        let u = self.Ai.dot(&v);
+        let u = self.approx_hessian_inv.dot(&v);
         debug_assert!(u.shape() == v.shape());
-        self.Ai -= &(u.dot(&u.t()) / (1f64 + u.dot(&g)));
+        self.approx_hessian_inv -= &(u.dot(&u.t()) / (1f64 + u.dot(&g)));
     }
 }

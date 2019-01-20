@@ -77,10 +77,10 @@ pub fn step_constituents(
     r: ArrayView2<f64>,
     m: ArrayView2<bool>,
 ) -> Result<Array2<f64>, Error> {
-    let (T, K) = m.dim();
-    let mut out = Array2::ones((T, 3));
-    let mut x = Array1::zeros(K);
-    let mut active_set = Array1::from_elem(K, false);
+    let (n_obs, n_assets) = m.dim();
+    let mut out = Array2::ones((n_obs, 3));
+    let mut x = Array1::zeros(n_assets);
+    let mut active_set = Array1::from_elem(n_assets, false);
     let mut active_indices = Vec::new();
     let mut gd = GradientDescent::new(a, lambda, cost);
 
@@ -134,11 +134,11 @@ pub fn step_constituents(
             }
             // volume required to alter the strategy:
             if i > 0 {
-                let mut mock_x = Array1::zeros(K);
+                let mut mock_x = Array1::zeros(n_assets);
                 x.iter()
                     .zip(&active_indices)
                     .for_each(|(&xi, &i)| mock_x[i] = xi);
-                let mut mock_y = Array1::zeros(K);
+                let mut mock_y = Array1::zeros(n_assets);
                 y.iter()
                     .zip(&new_active_indices)
                     .for_each(|(&yi, &i)| mock_y[i] = yi);
@@ -167,9 +167,9 @@ pub fn step_constituents_fixed(
     r: ArrayView2<f64>,
     m: ArrayView2<bool>,
 ) -> Result<Array2<f64>, Error> {
-    let (T, K) = r.dim();
-    let mut out = Array2::ones((T - 1, 3));
-    let mut prev_invested = Array1::zeros(K);
+    let (n_obs, n_assets) = r.dim();
+    let mut out = Array2::ones((n_obs - 1, 3));
+    let mut prev_invested = Array1::zeros(n_assets);
     prev_invested[0] = 1f64;
 
     for ((fut_ri, mi), mut oi) in r
@@ -187,7 +187,7 @@ pub fn step_constituents_fixed(
         let active_sum = y.scalar_sum();
         y /= active_sum;
 
-        let mut invested = Array1::zeros(K);
+        let mut invested = Array1::zeros(n_assets);
         for (&yi, &i) in y.iter().zip(active_set.iter()) {
             invested[i] = yi;
         }

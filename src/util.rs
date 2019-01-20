@@ -1,5 +1,6 @@
 use super::Error;
 use ndarray::prelude::*;
+use ndarray_linalg::Solve;
 
 /// The gradient of the log-risk adjusted growth:
 ///     
@@ -21,8 +22,12 @@ pub fn grad(
     let s = a.mapv(f64::signum);
 
     let xr = x.dot(&r);
-    let factor = 1f64 / xr - 2f64 * lambda * xr.ln().min(0f64) / xr;
-    Ok(&r * factor + cost * &s / (1f64 - cost * s.dot(&a)))
+    let xrs = x.dot(&(&s + &r));
+    let b = 1f64 - cost * x.dot(&s);
+    // r minus c times s' times derivative of (a times x' times r)
+    let r_csdaxr = (&r + &(&s * &((xr - cost * xrs) / b - &r) * cost)) / b;
+
+    Ok(&r_csdaxr / (xr * (1f64 - cost * s.dot(&a))) - &r * 2f64 * lambda * xr.ln() / xr)
 }
 
 /// To rebalance fractions w_i to fractions x_i at cost cost, we must subtract
@@ -111,9 +116,68 @@ pub fn project_simplex(mut x: ArrayViewMut1<f64>) -> Result<(), Error> {
     Ok(())
 }
 
+pub fn project_simplex_general(
+    x: ArrayView1<f64>,
+    pos_def: ArrayView2<f64>,
+    max_iter: usize,
+) -> Result<Array1<f64>, Error> {
+    let k = x.dim();
+    let iota = Array1::ones(k);
+    let pos_def_inv_iota = pos_def
+        .solve(&iota)
+        .map_err(|_| Error::SolveError(&"could not solve A^{-1} i"))?;
+    let iota_pos_def_inv_iota = iota.dot(&pos_def_inv_iota);
+    let mut y = &iota / k as f64;
+    let x_i = x.dot(&iota);
+
+    let step = |y: ArrayView1<f64>, m: f64| {
+        let l = (2f64 - 2f64 * x_i - (m / &y).dot(&pos_def_inv_iota)) / iota_pos_def_inv_iota;
+        let g = 2f64 * (&y - &x).dot(&pos_def) - m / &y - l * &iota;
+        let h = {
+            let mut temp = 2f64 * &pos_def;
+            for idx in 0..k {
+                temp[(idx, idx)] += m * y[idx].powi(-2);
+            }
+            temp
+        };
+        h.solve(&g)
+            .map_err(|_| Error::SolveError(&"could not solve H^{-1} g"))
+    };
+
+    let mut m = 1f64;
+    let mut y_ = x.to_owned();
+
+    for _ in 0..max_iter {
+        if y.all_close(&y_, 1e-8) {
+            break;
+        }
+        let z = &y - &step(y.view(), m)?;
+        if z.fold(true, |acc, &el| acc && el > 0f64) {
+            if m > 1e-12 {
+                m /= 2f64;
+            }
+            y_ = y;
+            y = z;
+        } else {
+            m *= 2f64;
+        }
+    }
+
+    Ok(y)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_general_projection() {
+        let pos_def = arr2(&[[5f64, 1f64, 2f64], [1f64, 6f64, 1f64], [2f64, 1f64, 5f64]]);
+        let x = arr1(&[1f64, 2f64, 3f64]);
+        let y = project_simplex_general(x.view(), pos_def.view(), 1000).unwrap();
+        println!("{:?}", y);
+        assert!(y.all_close(&arr1(&[0f64, 1f64 / 9f64, 8f64 / 9f64]), 1e-7));
+    }
 
     #[test]
     fn test_projection() {

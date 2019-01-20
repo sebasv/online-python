@@ -16,5 +16,9 @@ ndarray = "0.12"
 version = "0.5.2"
 features = ["extension-module"]
 
+[dependencies.ndarray-linalg]
+version = "0.10"
+features = ["openblas"]
+
 [dev-dependencies]
 rand = "0.6"
