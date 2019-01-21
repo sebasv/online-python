@@ -67,7 +67,6 @@ impl Newton {
 impl Step for Newton {
     #[inline]
     fn step(&mut self, mut x: ArrayViewMut1<f64>, r: ArrayView1<f64>) -> Result<(), Error> {
-        // we cannot init the hessians in ::new(), since their size is not predetermined.
         self.t += 1;
         let g = grad(x.view(), r, self.lambda, self.cost)?;
         self.update_approx_hessian(g.view());

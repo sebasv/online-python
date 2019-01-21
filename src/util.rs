@@ -1,6 +1,6 @@
 use super::Error;
 use ndarray::prelude::*;
-use ndarray_linalg::Solve;
+use ndarray_linalg::SolveC;
 
 /// The gradient of the log-risk adjusted growth:
 ///     
@@ -128,16 +128,17 @@ pub fn project_simplex_general(
 ) -> Result<Array1<f64>, Error> {
     let k = x.dim();
     let iota = Array1::ones(k);
-    let pos_def_inv_iota = pos_def
-        .solve(&iota)
-        .map_err(|_| Error::SolveError(&"could not solve A^{-1} i"))?;
+    let pos_def_inv_iota = pos_def.solvec(&iota).map_err(|_| {
+        println!("{:?}", pos_def);
+        Error::SolveError(&"could not solve A^{-1} i")
+    })?;
     let iota_pos_def_inv_iota = iota.dot(&pos_def_inv_iota);
     let mut y = &iota / k as f64;
     let x_i = x.dot(&iota);
 
     let step = |y: ArrayView1<f64>, m: f64| {
         let l = (2f64 - 2f64 * x_i - (m / &y).dot(&pos_def_inv_iota)) / iota_pos_def_inv_iota;
-        let g = 2f64 * (&y - &x).dot(&pos_def) - m / &y - l * &iota;
+        let mut g = 2f64 * (&y - &x).dot(&pos_def) - m / &y - l * &iota;
         let h = {
             let mut temp = 2f64 * &pos_def;
             for idx in 0..k {
@@ -145,8 +146,9 @@ pub fn project_simplex_general(
             }
             temp
         };
-        h.solve(&g)
-            .map_err(|_| Error::SolveError(&"could not solve H^{-1} g"))
+        h.solvec_inplace(&mut g)
+            .map_err(|_| Error::SolveError(&"could not solve H^{-1} g"))?;
+        Ok(g)
     };
 
     let mut m = 1f64; // TODO educated initial guess
@@ -174,7 +176,8 @@ pub fn project_simplex_general(
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use ndarray_linalg::Solve;
+    use rand::prelude::*;
     #[test]
     fn test_general_projection() {
         let pos_def = arr2(&[[5f64, 1f64, 2f64], [1f64, 6f64, 1f64], [2f64, 1f64, 5f64]]);
@@ -206,5 +209,16 @@ mod tests {
         let cost = c * a.mapv(f64::abs).scalar_sum();
         println!("{}", &(&w - &a) - &(&x * (1f64 - cost)));
         assert!((&w - &a).all_close(&(&x * (1f64 - cost)), 1e-16));
+    }
+
+    #[test]
+    fn test_dgemv() {
+        // let pos_def = arr2(&[[5f64, 1f64, 2f64], [1f64, 6f64, 1f64], [2f64, 1f64, 5f64]]);
+        // let x = arr1(&[1f64, 2f64, 3f64]);
+        let n = 1100;
+        let x = Array1::from_shape_fn(n, |_| random::<f64>());
+        let pos_def = &Array2::eye(n) * 2f64;
+        let y = pos_def.solve(&x);
+        println!("{:?}", y);
     }
 }

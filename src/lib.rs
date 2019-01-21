@@ -5,6 +5,7 @@ mod processors;
 mod util;
 mod version;
 
+#[macro_use]
 extern crate ndarray;
 extern crate ndarray_linalg;
 extern crate numpy;
@@ -260,12 +261,7 @@ impl Newton {
         Ok(self.gd.approx_hessian.clone().into_pyarray(py).to_owned())
     }
 
-    /// fn step_constituents(a, lambda, x0, r, m, method) -> out
-    /// a: alpha-exp-concavity (1)
-    /// lambda: risk aversion
-    /// data: matrix of rows of return data
-    /// method: {'Newton', 'Gradient'} the method to use
-    /// out: growth
+    /// fn step_constituents(beta, max_iter, lambda, cost, r, m) -> out
     #[staticmethod]
     fn step_constituents(
         py: Python,

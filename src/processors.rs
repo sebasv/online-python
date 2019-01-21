@@ -57,9 +57,15 @@ where
                 new_active_indices
                     .iter()
                     .fold(0, |acc, &i| if acc < starts[i] { starts[i] } else { acc });
-            let warm_start_r = Array2::from_shape_fn((i - max_start, warm_start_k), |(i, j)| {
-                r[(max_start + i, new_active_indices[j])]
-            });
+
+            let warm_start_r = {
+                let mut temp = Array2::zeros((i - max_start, warm_start_k));
+                for (j_, &j) in new_active_indices.iter().enumerate() {
+                    temp.slice_mut(s![.., j_])
+                        .assign(&r.slice(s![max_start..i, j]))
+                }
+                temp
+            };
 
             // reset gd
             gd = method.build(warm_start_k);
