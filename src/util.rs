@@ -121,6 +121,7 @@ pub fn project_simplex(mut x: ArrayViewMut1<f64>) -> Result<(), Error> {
     Ok(())
 }
 
+/// TODO use tricks so you don't actually have to invert matrices here
 pub fn project_simplex_general(
     x: ArrayView1<f64>,
     pos_def: ArrayView2<f64>,
@@ -154,8 +155,9 @@ pub fn project_simplex_general(
     let mut m = 1f64; // TODO educated initial guess
     let mut y_ = x.to_owned();
 
-    for _ in 0..max_iter {
+    for c in 0..max_iter {
         if y.all_close(&y_, 1e-8) {
+            eprintln!("n iterations: {}", c);
             break;
         }
         let z = &y - &step(y.view(), m)?;
@@ -168,8 +170,11 @@ pub fn project_simplex_general(
         } else {
             m *= 2f64;
         }
-    }
 
+        if c == max_iter - 1 {
+            eprintln!("n iterations: {}", c)
+        }
+    }
     Ok(y)
 }
 
@@ -209,16 +214,5 @@ mod tests {
         let cost = c * a.mapv(f64::abs).scalar_sum();
         println!("{}", &(&w - &a) - &(&x * (1f64 - cost)));
         assert!((&w - &a).all_close(&(&x * (1f64 - cost)), 1e-16));
-    }
-
-    #[test]
-    fn test_dgemv() {
-        // let pos_def = arr2(&[[5f64, 1f64, 2f64], [1f64, 6f64, 1f64], [2f64, 1f64, 5f64]]);
-        // let x = arr1(&[1f64, 2f64, 3f64]);
-        let n = 1100;
-        let x = Array1::from_shape_fn(n, |_| random::<f64>());
-        let pos_def = &Array2::eye(n) * 2f64;
-        let y = pos_def.solve(&x);
-        println!("{:?}", y);
     }
 }
