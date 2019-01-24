@@ -65,6 +65,7 @@ pub enum Error {
     ContiguityError(&'static str),
     SolveError(&'static str),
     InvalidMethodError(&'static str),
+    ConvergenceError(&'static str),
 }
 
 impl std::convert::From<Error> for PyErr {
@@ -74,6 +75,7 @@ impl std::convert::From<Error> for PyErr {
             Error::ContiguityError(x) => pyo3::exceptions::ValueError::py_err(x),
             Error::SolveError(x) => pyo3::exceptions::ValueError::py_err(x),
             Error::InvalidMethodError(x) => pyo3::exceptions::ValueError::py_err(x),
+            Error::ConvergenceError(x) => pyo3::exceptions::ValueError::py_err(x),
         }
     }
 }
@@ -160,6 +162,7 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
 #[pyclass]
 struct GradientDescent {
     gd: online_gradient_descent::GradientDescent,
+    cost: f64,
 }
 
 #[pymethods]
@@ -169,12 +172,24 @@ impl GradientDescent {
     fn __new__(obj: &PyRawObject, alpha: f64, gamma: f64, cost: f64) -> PyResult<()> {
         obj.init(|_| GradientDescent {
             gd: online_gradient_descent::GradientDescent::new(alpha, gamma, cost),
+            cost,
         })
     }
 
-    fn step(&mut self, x: &PyArray1<f64>, r: &PyArray1<f64>) -> PyResult<()> {
-        self.gd.step(x.as_array_mut(), r.as_array())?;
-        Ok(())
+    /// fn step(x, r) -> [gross_growth, cash, transacted]
+    fn step(
+        &mut self,
+        py: Python,
+        x: &PyArray1<f64>,
+        r: &PyArray1<f64>,
+    ) -> PyResult<Py<PyArray1<f64>>> {
+        let step_result =
+            StepResult::step(x.as_array_mut(), r.as_array(), self.cost, &mut self.gd)?;
+        let mut a = Array1::zeros(3);
+        a[0] = step_result.gross_growth;
+        a[1] = step_result.cash;
+        a[2] = step_result.transacted;
+        Ok(a.into_pyarray(py).to_owned())
     }
 
     /// fn step_constituents(a, lambda, x0, r, m, method) -> out
@@ -231,6 +246,7 @@ impl GradientDescent {
 #[pyclass]
 struct Newton {
     gd: online_newton::Newton,
+    cost: f64,
 }
 
 #[pymethods]
@@ -249,12 +265,24 @@ impl Newton {
     ) -> PyResult<()> {
         obj.init(|_| Newton {
             gd: online_newton::Newton::new(beta, max_iter, gamma, cost, n),
+            cost,
         })
     }
 
-    fn step(&mut self, x: &PyArray1<f64>, r: &PyArray1<f64>) -> PyResult<()> {
-        self.gd.step(x.as_array_mut(), r.as_array())?;
-        Ok(())
+    /// fn step(x, r) -> [gross_growth, cash, transacted]
+    fn step(
+        &mut self,
+        py: Python,
+        x: &PyArray1<f64>,
+        r: &PyArray1<f64>,
+    ) -> PyResult<Py<PyArray1<f64>>> {
+        let step_result =
+            StepResult::step(x.as_array_mut(), r.as_array(), self.cost, &mut self.gd)?;
+        let mut a = Array1::zeros(3);
+        a[0] = step_result.gross_growth;
+        a[1] = step_result.cash;
+        a[2] = step_result.transacted;
+        Ok(a.into_pyarray(py).to_owned())
     }
 
     fn hess(&self, py: Python) -> PyResult<Py<PyArray2<f64>>> {

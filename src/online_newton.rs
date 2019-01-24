@@ -59,12 +59,8 @@ impl Newton {
         self.approx_hessian += &(v.dot(&v.t()));
 
         let u = self.approx_hessian_inv.dot(&v);
-        // let scale = 1f64 + u.t().dot(&g);
-        let scale = 1f64 + g.dot(&u.slice(s![.., 0])); // fixes a bug where the BLAS implementation of dot is used with the wrong dimensions, and stuff goes haywire
-        let rank_1 = u.dot(&u.t());
-        self.approx_hessian_inv -= &(&rank_1 / scale);
-    }
-}
+        self.approx_hessian_inv -=
+            &(u.dot(&u.t()) / (1f64 + u.into_shape(g.len()).unwrap().dot(&g)));
     }
 }
 
@@ -108,12 +104,5 @@ mod tests {
         println!("{:?}", v);
         assert!(v.dim() == (2, 2));
         assert!(v.all_close(&arr2(&[[1., 2.], [2., 4.]]), 1e-9));
-    }
-
-    #[test]
-    fn test_dgemv() {
-        let a = arr2(&[[1.], [2.]]);
-        let b = arr1(&[1., 2.]);
-        println!("{:?}", a.t().dot(&b));
     }
 }

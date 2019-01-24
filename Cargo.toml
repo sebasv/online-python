@@ -10,15 +10,13 @@ crate-type = ["cdylib"]
 
 [dependencies]
 numpy = "0.4.0"
-ndarray = "0.12"
-
-[dependencies.pyo3]
-version = "0.5.2"
-features = ["extension-module"]
-
-[dependencies.ndarray-linalg]
-version = "0.10"
-features = ["intel-mkl"]
+pyo3 = {version = "0.5.2", features = ["extension-module"]}
+ndarray = {version = "0.12", features=["blas"]}
+# sudo apt install openblas-base openblas-dev
+ndarray-linalg = {version = "0.10", default-features=false, features = ["openblas"]}
+# blas-src = { version = "0.2.0", default-features = false, features = ["openblas"] }
+# openblas-src = { version = "0.6.0", default-features = false, features = ["cblas", "system"] }
 
 [dev-dependencies]
 rand = "0.6"
+

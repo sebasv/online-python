@@ -1,6 +1,6 @@
 use super::Error;
 use ndarray::prelude::*;
-use ndarray_linalg::SolveC;
+use ndarray_linalg::{FactorizeC, SolveC, UPLO};
 
 /// The gradient of the log-risk adjusted growth:
 ///     
@@ -121,7 +121,6 @@ pub fn project_simplex(mut x: ArrayViewMut1<f64>) -> Result<(), Error> {
     Ok(())
 }
 
-/// TODO use tricks so you don't actually have to invert matrices here
 pub fn project_simplex_general(
     x: ArrayView1<f64>,
     pos_def: ArrayView2<f64>,
@@ -129,60 +128,75 @@ pub fn project_simplex_general(
 ) -> Result<Array1<f64>, Error> {
     let k = x.dim();
     let iota = Array1::ones(k);
-    let pos_def_inv_iota = pos_def.solvec(&iota).map_err(|_| {
-        println!("{:?}", pos_def);
-        Error::SolveError(&"could not solve A^{-1} i")
-    })?;
-    let iota_pos_def_inv_iota = iota.dot(&pos_def_inv_iota);
     let mut y = &iota / k as f64;
-    let x_i = x.dot(&iota);
 
     let step = |y: ArrayView1<f64>, m: f64| {
-        let l = (2f64 - 2f64 * x_i - (m / &y).dot(&pos_def_inv_iota)) / iota_pos_def_inv_iota;
-        let mut g = 2f64 * (&y - &x).dot(&pos_def) - m / &y - l * &iota;
+        let mut g1 = 2f64 * (&y - &x).dot(&pos_def) - m / &y; // - l * &iota;
         let h = {
             let mut temp = 2f64 * &pos_def;
             for idx in 0..k {
                 temp[(idx, idx)] += m * y[idx].powi(-2);
             }
-            temp
+            temp.factorizec(UPLO::Upper).map_err(|e| {
+                // eprintln!("{}\n{}\n{}\n{}", e, temp, m, y);
+                Error::SolveError(&"could not Choleski H")
+            })?
         };
-        h.solvec_inplace(&mut g)
+        h.solvec_inplace(&mut g1)
             .map_err(|_| Error::SolveError(&"could not solve H^{-1} g"))?;
-        Ok(g)
+        let h_inv_i = h
+            .solvec(&iota)
+            .map_err(|_| Error::SolveError(&"could not solve H^{-1} iota"))?;
+        let lambda = g1.scalar_sum() / h_inv_i.scalar_sum();
+        g1.scaled_add(-lambda, &h_inv_i);
+
+        Ok(g1)
     };
 
-    let mut m = 1f64; // TODO educated initial guess
+    let mut m = 1f64 / k as f64;
     let mut y_ = x.to_owned();
 
     for c in 0..max_iter {
         if y.all_close(&y_, 1e-8) {
-            eprintln!("n iterations: {}", c);
-            break;
-        }
-        let z = &y - &step(y.view(), m)?;
-        if z.fold(true, |acc, &el| acc && el > 0f64) {
-            if m > 1e-12 {
-                m /= 2f64;
+            if y.fold(1f64, |acc, &yi| {
+                if acc.partial_cmp(&yi) == Some(std::cmp::Ordering::Less) {
+                    acc
+                } else {
+                    yi
+                }
+            }) < 0f64
+                || y.scalar_sum() > 1f64 + 1e-12
+            {
+                eprintln!("{}", y);
+                return Err(Error::SolveError("Y became invalid"));
             }
-            y_ = y;
-            y = z;
-        } else {
-            m *= 2f64;
+            eprintln!("n iterations: {}", c);
+            return Ok(y);
         }
-
-        if c == max_iter - 1 {
-            eprintln!("n iterations: {}", c)
+        let dir = step(y.view(), m)?;
+        let m2 = m.powi(2);
+        // a = min(1, np.min(np.where(y/s>m**2/s, y/s-m**2/s, 1)))
+        let a = y.iter().zip(dir.iter()).fold(1f64, |acc, (&yi, &di)| {
+            if di > 0f64 && yi > m2 && (yi - m2) / di < acc {
+                (yi - m2) / di
+            } else {
+                acc
+            }
+        });
+        y_.assign(&y);
+        y.scaled_add(-a, &dir);
+        if m > 1e-12 {
+            m /= 2f64;
         }
     }
-    Ok(y)
+    Err(Error::ConvergenceError(
+        "generalized projection algorithm did not converge on a feasible solution",
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ndarray_linalg::Solve;
-    use rand::prelude::*;
     #[test]
     fn test_general_projection() {
         let pos_def = arr2(&[[5f64, 1f64, 2f64], [1f64, 6f64, 1f64], [2f64, 1f64, 5f64]]);
@@ -214,5 +228,12 @@ mod tests {
         let cost = c * a.mapv(f64::abs).scalar_sum();
         println!("{}", &(&w - &a) - &(&x * (1f64 - cost)));
         assert!((&w - &a).all_close(&(&x * (1f64 - cost)), 1e-16));
+    }
+
+    #[test]
+    fn test_choleski() {
+        let a: Array2<f64> = Array2::eye(3);
+        let b = a.factorizec(UPLO::Upper).unwrap();
+        // println!("{:?}", b);
     }
 }
