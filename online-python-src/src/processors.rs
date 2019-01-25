@@ -1,6 +1,6 @@
+use crate::util::transaction_cost;
+use crate::{Build, Error, Step, StepResult};
 use ndarray::prelude::*;
-use util::transaction_cost;
-use {Build, Error, Step, StepResult};
 
 pub fn step_constituents<M>(
     cost: f64,

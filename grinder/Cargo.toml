@@ -1,0 +1,9 @@
+[package]
+name = "grinder"
+version = "0.1.0"
+authors = ["sebasv <mail@sebastiaanvermeulen.nl>"]
+edition = "2018"
+
+[dependencies]
+online-python = {path = "../."}
+rand = "0.6"

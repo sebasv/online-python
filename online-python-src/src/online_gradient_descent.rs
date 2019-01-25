@@ -1,6 +1,6 @@
+use crate::util::{grad, project_simplex};
+use crate::{Build, Error, Step};
 use ndarray::prelude::*;
-use util::{grad, project_simplex};
-use {Build, Error, Step};
 
 pub struct GradientBuilder {
     a: f64,

@@ -1,6 +1,6 @@
+use crate::util::{grad, project_simplex_general};
+use crate::{Build, Error, Step};
 use ndarray::prelude::*;
-use util::{grad, project_simplex_general};
-use {Build, Error, Step};
 
 pub struct NewtonBuilder {
     beta: f64,

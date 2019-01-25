@@ -136,10 +136,8 @@ pub fn project_simplex_general(
             for idx in 0..k {
                 temp[(idx, idx)] += m * y[idx].powi(-2);
             }
-            temp.factorizec(UPLO::Upper).map_err(|e| {
-                // eprintln!("{}\n{}\n{}\n{}", e, temp, m, y);
-                Error::SolveError(&"could not Choleski H")
-            })?
+            temp.factorizec(UPLO::Upper)
+                .map_err(|_| Error::SolveError(&"could not Choleski H"))?
         };
         h.solvec_inplace(&mut g1)
             .map_err(|_| Error::SolveError(&"could not solve H^{-1} g"))?;
@@ -157,19 +155,19 @@ pub fn project_simplex_general(
 
     for c in 0..max_iter {
         if y.all_close(&y_, 1e-8) {
-            if y.fold(1f64, |acc, &yi| {
-                if acc.partial_cmp(&yi) == Some(std::cmp::Ordering::Less) {
-                    acc
-                } else {
-                    yi
-                }
-            }) < 0f64
-                || y.scalar_sum() > 1f64 + 1e-12
-            {
-                eprintln!("{}", y);
-                return Err(Error::SolveError("Y became invalid"));
-            }
-            eprintln!("n iterations: {}", c);
+            // if y.fold(1f64, |acc, &yi| {
+            //     if acc.partial_cmp(&yi) == Some(std::cmp::Ordering::Less) {
+            //         acc
+            //     } else {
+            //         yi
+            //     }
+            // }) < 0f64
+            //     || y.scalar_sum() > 1f64 + 1e-12
+            // {
+            //     eprintln!("{}", y);
+            //     return Err(Error::SolveError("Y became invalid"));
+            // }
+            // eprintln!("n iterations: {}", c);
             return Ok(y);
         }
         let dir = step(y.view(), m)?;

@@ -16,7 +16,10 @@ ndarray = {version = "0.12", features=["blas"]}
 ndarray-linalg = {version = "0.10", default-features=false, features = ["openblas"]}
 # blas-src = { version = "0.2.0", default-features = false, features = ["openblas"] }
 # openblas-src = { version = "0.6.0", default-features = false, features = ["cblas", "system"] }
+online-python-src = {path="online-python-src"}
 
 [dev-dependencies]
 rand = "0.6"
 
+[profile]
+opt-level = 3
