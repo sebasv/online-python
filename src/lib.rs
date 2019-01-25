@@ -105,6 +105,20 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
             .to_owned())
     }
 
+    /// fn gradient(x, r, lambda, cost)
+    #[pyfn(m, "gradient")]
+    fn gradient(
+        py: Python,
+        x: &PyArray1<f64>,
+        r: &PyArray1<f64>,
+        lambda: f64,
+        cost: f64,
+    ) -> PyResult<Py<PyArray1<f64>>> {
+        Ok(util::grad(x.as_array(), r.as_array(), lambda, cost)?
+            .into_pyarray(py)
+            .to_owned())
+    }
+
     /// fn project(x)
     /// x: vector to be projected
     /// x is projected in-place.
@@ -217,7 +231,7 @@ impl GradientDescent {
         .to_owned())
     }
 
-    /// fn step_all(a,lambda, x0, data) -> results
+    /// fn step_all(a,lambda, cost, x0, data) -> results
     /// a: alpha-exp-concavity (1)
     /// lambda: risk aversion
     /// x0: starting allocation

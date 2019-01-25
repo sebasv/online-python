@@ -15,14 +15,13 @@ pub fn grad(
     lambda: f64,
     cost: f64,
 ) -> Result<Array1<f64>, Error> {
-    let mut x_r = &x * &r;
+    let xr = x.dot(&r);
+    let x_r = &(&x * &r) / (xr + 1f64 - x.scalar_sum());
 
-    x_r /= x_r.scalar_sum() + 1f64 - x.scalar_sum(); // such that the amount invested in cash remains the same
     let a = transaction_volume(x_r.view(), x, cost)?;
     let s = a.mapv(f64::signum);
 
-    let xr = x.dot(&r);
-    let xrs = x.dot(&(&s + &r));
+    let xrs = x.dot(&(&s * &r));
     let b = 1f64 - cost * x.dot(&s);
     // r minus c times s' times derivative of (a times x' times r)
     let r_csdaxr = (&r + &(&s * &((xr - cost * xrs) / b - &r) * cost)) / b;
@@ -235,5 +234,41 @@ mod tests {
         let a: Array2<f64> = Array2::eye(3);
         let b = a.factorizec(UPLO::Upper).unwrap();
         // println!("{:?}", b);
+    }
+
+    #[test]
+    fn test_grad() {
+        let x = arr1(&[0.1, 0.2, 0.3, 0.4]);
+        let r = arr1(&[0.9, 0.95, 1.0, 1.05]);
+        let lambda = 1.0;
+        let cost = 0.002;
+        let f = |x: ArrayView1<f64>, r: ArrayView1<f64>, lambda, cost| {
+            let xr = x.dot(&r);
+            let x_r = &x * &r;
+            let sa = transaction_cost((x_r / xr).view(), x, cost).unwrap();
+            let lnxr = xr.ln();
+            lnxr + (1. - cost * sa).ln() - lambda * lnxr.powi(2)
+        };
+
+        let approx_grad = {
+            let mut e = x.to_owned();
+            let f0 = f(e.view(), r.view(), lambda, cost);
+            let eps = 1e-8;
+            let mut out = Array1::zeros(e.len());
+            for (i, mut oi) in out.iter_mut().enumerate() {
+                e[i] += eps;
+                *oi = (f(e.view(), r.view(), lambda, cost) - f0) / eps;
+                e[i] -= eps;
+            }
+            out
+        };
+        let anal_grad = grad(x.view(), r.view(), lambda, cost).unwrap();
+        println!(
+            "{}\n{}\n{}",
+            approx_grad,
+            anal_grad,
+            &approx_grad - &anal_grad
+        );
+        assert!((&anal_grad - &approx_grad).mapv(f64::abs).scalar_sum() < 1e-6);
     }
 }
