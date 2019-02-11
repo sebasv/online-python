@@ -18,13 +18,13 @@ pub trait Step {
 }
 
 pub struct StepResult {
-    gross_growth: f64,
-    transacted: f64,
-    cash: f64,
+    pub gross_growth: f64,
+    pub transacted: f64,
+    pub cash: f64,
 }
 
 impl StepResult {
-    fn step<S>(
+    pub fn step<S>(
         mut x: ArrayViewMut1<f64>,
         r: ArrayView1<f64>,
         cost: f64,
@@ -51,7 +51,7 @@ impl StepResult {
 
 #[derive(Debug)]
 pub enum Error {
-    NaNError(&'static str),
+    ValueError(&'static str),
     ContiguityError(&'static str),
     SolveError(&'static str),
     InvalidMethodError(&'static str),
