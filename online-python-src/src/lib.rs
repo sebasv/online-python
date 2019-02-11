@@ -20,9 +20,9 @@ pub trait Step {
 }
 
 pub struct StepResult {
-    gross_growth: f64,
-    transacted: f64,
-    cash: f64,
+    pub gross_growth: f64,
+    pub transacted: f64,
+    pub cash: f64,
 }
 
 impl StepResult {

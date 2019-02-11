@@ -2,6 +2,77 @@ use super::Error;
 use ndarray::prelude::*;
 use ndarray_linalg::{FactorizeC, SolveC, UPLO};
 
+pub fn check_grad_input(
+    y: ArrayView1<f64>,
+    x: ArrayView1<f64>,
+    r: ArrayView1<f64>,
+    lambda: f64,
+    cost: f64,
+) -> Result<(f64, Array1<f64>), Error> {
+    if r.len() != x.len() || x.len() != y.len() {
+        return Err(Error::new("lengths of r, y and x must match"));
+    }
+    if lambda < 0f64 {
+        return Err(Error::new("lambda cannot be negative"));
+    }
+    if cost < 0f64 || cost >= 1f64 {
+        return Err(Error::new("cost must be from [0,1)"));
+    }
+
+    let xr = x.dot(&r);
+    let a = transaction_volume(y, x, cost)?;
+    let s = a.mapv(f64::signum);
+    let csa = cost * s.dot(&a);
+    let growth = (1f64 - csa) * xr;
+    let d_growth = (1f64 - csa) * (&r + &(&s * cost * xr / (1f64 - cost * s.dot(&x))));
+    Ok((growth, d_growth))
+}
+
+/// gradient of growth - lambda * (growth)^2
+pub fn grad_quad(
+    y: ArrayView1<f64>,
+    x: ArrayView1<f64>,
+    r: ArrayView1<f64>,
+    lambda: f64,
+    cost: f64,
+) -> Result<Array1<f64>, Error> {
+    let (growth, d_growth) = check_grad_input(y, x, r, lambda, cost)?;
+
+    Ok(&d_growth * (1f64 - lambda * 2f64 * growth))
+}
+
+/// gradient of
+///     1 - e^(-lambda * growth)
+///     ------------------------
+///             lambda
+pub fn grad_exp(
+    y: ArrayView1<f64>,
+    x: ArrayView1<f64>,
+    r: ArrayView1<f64>,
+    lambda: f64,
+    cost: f64,
+) -> Result<Array1<f64>, Error> {
+    let (growth, d_growth) = check_grad_input(y, x, r, lambda, cost)?;
+
+    Ok(&d_growth * (-lambda * growth).exp())
+}
+
+/// gradient of
+///     growth^(1-lambda) - 1
+///     ---------------------
+///          1 - lambda
+pub fn grad_pow(
+    y: ArrayView1<f64>,
+    x: ArrayView1<f64>,
+    r: ArrayView1<f64>,
+    lambda: f64,
+    cost: f64,
+) -> Result<Array1<f64>, Error> {
+    let (growth, d_growth) = check_grad_input(y, x, r, lambda, cost)?;
+
+    Ok(d_growth.mapv(|el| el.powf(-lambda)))
+}
+
 /// The gradient of the log-risk adjusted growth:
 ///     
 ///     `x.dot(&r).ln() - (1f64 - cost * a.mapv(f64::abs).scalar_sum()).ln() - lambda * x.dot(&r).ln().pow(2)`
@@ -10,11 +81,13 @@ use ndarray_linalg::{FactorizeC, SolveC, UPLO};
 /// set lambda=0 to eliminate risk adjustment.
 #[inline]
 pub fn grad(
+    y: ArrayView1<f64>,
     x: ArrayView1<f64>,
     r: ArrayView1<f64>,
     lambda: f64,
     cost: f64,
 ) -> Result<Array1<f64>, Error> {
+    check_grad_input(y, x, r, lambda, cost)?;
     let xr = x.dot(&r);
     let x_r = &(&x * &r) / (xr + 1f64 - x.scalar_sum());
 
@@ -45,7 +118,10 @@ pub fn grad(
 /// The total transaction costs are cost*a.mapv(f64::abs).scalar_sum().
 /// The amount of cash sold is cost*a.mapv(f64::abs).scalar_sum() - a.scalar_sum().
 ///
-/// Returns a NaNError if either w or x contain nans, since the algorithm would loop indefinitely on NaNs.
+/// Alternative representations of s:
+///     s = sign(w(1-cs'x) - x(1-cs'w)) = sign(w - x + c(xw' - wx')s)
+///
+/// Returns a ValueError if either w or x contain nans, since the algorithm would loop indefinitely on NaNs.
 #[inline]
 pub fn transaction_volume(
     w: ArrayView1<f64>,
@@ -58,14 +134,22 @@ pub fn transaction_volume(
             "cannot calculate transaction costs over vector containing nans",
         ));
     }
+    if w.len() != x.len() {
+        return Err(Error::new("lengths of r and x must match"));
+    }
+    if cost < 0f64 || cost >= 1f64 {
+        return Err(Error::new("cost must be from [0,1)"));
+    }
 
     let mut s = d.mapv(f64::signum);
-    let mut a = &d + &(&x * cost * s.dot(&d) / (1f64 - cost * s.dot(&x)));
+    let mut a = &w - &(&x * (1f64 - cost * s.dot(&w)) / (1f64 - cost * s.dot(&x)));
+    // let mut a = &d + &(&x * cost * s.dot(&d) / (1f64 - cost * s.dot(&x)));
     let mut t = a.mapv(f64::signum);
 
     while !t.all_close(&s, 0.1) {
         s = t;
-        a = &d + &(&x * cost * s.dot(&d) / (1f64 - cost * s.dot(&x)));
+        a = &w - &(&x * (1f64 - cost * s.dot(&w)) / (1f64 - cost * s.dot(&x)));
+        // a = &d + &(&x * cost * s.dot(&d) / (1f64 - cost * s.dot(&x)));
         t = a.mapv(f64::signum);
     }
     Ok(a)
@@ -136,6 +220,12 @@ pub fn project_simplex_general(
     max_iter: usize,
 ) -> Result<Array1<f64>, Error> {
     let k = x.dim();
+    let (k1, k2) = pos_def.dim();
+    if k1 != k || k2 != k {
+        return Err(Error::new(
+            "pos_def must be square and must match the dimensions of x",
+        ));
+    }
     let iota = Array1::ones(k);
     let mut y = &iota / k as f64;
 

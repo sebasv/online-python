@@ -15,15 +15,13 @@ use ndarray::prelude::*;
 use numpy::{IntoPyArray, PyArray1, PyArray2};
 use pyo3::prelude::*;
 
-impl std::convert::From<Error> for PyErr {
-    fn from(err: Error) -> PyErr {
-        match err {
-            Error::NaNError(x) => pyo3::exceptions::ValueError::py_err(x),
-            Error::ContiguityError(x) => pyo3::exceptions::ValueError::py_err(x),
-            Error::SolveError(x) => pyo3::exceptions::ValueError::py_err(x),
-            Error::InvalidMethodError(x) => pyo3::exceptions::ValueError::py_err(x),
-            Error::ConvergenceError(x) => pyo3::exceptions::ValueError::py_err(x),
-        }
+fn to_pyerr(x: Error) -> PyErr {
+    match x {
+        Error::ValueError(x) => pyo3::exceptions::ValueError::py_err(x),
+        Error::ContiguityError(x) => pyo3::exceptions::ValueError::py_err(x),
+        Error::SolveError(x) => pyo3::exceptions::ValueError::py_err(x),
+        Error::InvalidMethodError(x) => pyo3::exceptions::ValueError::py_err(x),
+        Error::ConvergenceError(x) => pyo3::exceptions::ValueError::py_err(x),
     }
 }
 
@@ -47,7 +45,8 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
         x: &PyArray1<f64>,
         cost: f64,
     ) -> PyResult<Py<PyArray1<f64>>> {
-        Ok(util::transaction_volume(w.as_array(), x.as_array(), cost)?
+        Ok(util::transaction_volume(w.as_array(), x.as_array(), cost)
+            .map_err(to_pyerr)?
             .into_pyarray(py)
             .to_owned())
     }
@@ -61,7 +60,8 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
         lambda: f64,
         cost: f64,
     ) -> PyResult<Py<PyArray1<f64>>> {
-        Ok(util::grad(x.as_array(), r.as_array(), lambda, cost)?
+        Ok(util::grad(x.as_array(), r.as_array(), lambda, cost)
+            .map_err(to_pyerr)?
             .into_pyarray(py)
             .to_owned())
     }
@@ -71,7 +71,7 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
     /// x is projected in-place.
     #[pyfn(m, "project_simplex")]
     fn project_py(_py: Python, x: &PyArray1<f64>) -> PyResult<()> {
-        util::project_simplex(x.as_array_mut())?;
+        util::project_simplex(x.as_array_mut()).map_err(to_pyerr)?;
         Ok(())
     }
 
@@ -87,7 +87,8 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
         max_iter: usize,
     ) -> PyResult<Py<PyArray1<f64>>> {
         Ok(
-            util::project_simplex_general(x.as_array(), pos_def.as_array(), max_iter)?
+            util::project_simplex_general(x.as_array(), pos_def.as_array(), max_iter)
+                .map_err(to_pyerr)?
                 .into_pyarray(py)
                 .to_owned(),
         )
@@ -108,7 +109,8 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
         m: &PyArray2<bool>,
     ) -> PyResult<Py<PyArray2<f64>>> {
         Ok(
-            processors::step_constituents_fixed(cost, x.as_array(), r.as_array(), m.as_array())?
+            processors::step_constituents_fixed(cost, x.as_array(), r.as_array(), m.as_array())
+                .map_err(to_pyerr)?
                 .into_pyarray(py)
                 .to_owned(),
         )
@@ -144,8 +146,8 @@ impl GradientDescent {
         x: &PyArray1<f64>,
         r: &PyArray1<f64>,
     ) -> PyResult<Py<PyArray1<f64>>> {
-        let step_result =
-            StepResult::step(x.as_array_mut(), r.as_array(), self.cost, &mut self.gd)?;
+        let step_result = StepResult::step(x.as_array_mut(), r.as_array(), self.cost, &mut self.gd)
+            .map_err(to_pyerr)?;
         let mut a = Array1::zeros(3);
         a[0] = step_result.gross_growth;
         a[1] = step_result.cash;
@@ -173,7 +175,8 @@ impl GradientDescent {
             r.as_array(),
             m.as_array(),
             online_gradient_descent::GradientBuilder::new(a, lambda, cost),
-        )?
+        )
+        .map_err(to_pyerr)?
         .into_pyarray(py)
         .to_owned())
     }
@@ -198,7 +201,8 @@ impl GradientDescent {
             x0.as_array(),
             data.as_array(),
             online_gradient_descent::GradientBuilder::new(a, lambda, cost),
-        )?
+        )
+        .map_err(to_pyerr)?
         .into_pyarray(py)
         .to_owned())
     }
@@ -237,8 +241,8 @@ impl Newton {
         x: &PyArray1<f64>,
         r: &PyArray1<f64>,
     ) -> PyResult<Py<PyArray1<f64>>> {
-        let step_result =
-            StepResult::step(x.as_array_mut(), r.as_array(), self.cost, &mut self.gd)?;
+        let step_result = StepResult::step(x.as_array_mut(), r.as_array(), self.cost, &mut self.gd)
+            .map_err(to_pyerr)?;
         let mut a = Array1::zeros(3);
         a[0] = step_result.gross_growth;
         a[1] = step_result.cash;
@@ -266,7 +270,8 @@ impl Newton {
             r.as_array(),
             m.as_array(),
             online_newton::NewtonBuilder::new(beta, max_iter, lambda, cost),
-        )?
+        )
+        .map_err(to_pyerr)?
         .into_pyarray(py)
         .to_owned())
     }
@@ -293,7 +298,8 @@ impl Newton {
             x0.as_array(),
             data.as_array(),
             online_newton::NewtonBuilder::new(beta, max_iter, lambda, cost),
-        )?
+        )
+        .map_err(to_pyerr)?
         .into_pyarray(py)
         .to_owned())
     }
