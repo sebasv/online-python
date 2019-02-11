@@ -21,5 +21,5 @@ online-python-src = {path="online-python-src"}
 [dev-dependencies]
 rand = "0.6"
 
-[profile]
+[profile.release]
 opt-level = 3

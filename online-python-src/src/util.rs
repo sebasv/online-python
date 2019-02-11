@@ -54,7 +54,7 @@ pub fn transaction_volume(
 ) -> Result<Array1<f64>, Error> {
     let d = &w - &x;
     if d.fold(false, |acc, di| acc || di.is_nan()) {
-        return Err(Error::NaNError(
+        return Err(Error::new(
             "cannot calculate transaction costs over vector containing nans",
         ));
     }
@@ -87,13 +87,11 @@ pub fn transaction_cost(w: ArrayView1<f64>, x: ArrayView1<f64>, cost: f64) -> Re
 #[inline]
 pub fn project_simplex(mut x: ArrayViewMut1<f64>) -> Result<(), Error> {
     if x.fold(false, |acc, xi| acc || xi.is_nan()) {
-        return Err(Error::NaNError("cannot project vector containing nans"));
+        return Err(Error::new("cannot project vector containing nans"));
     }
     let mut y = x.to_owned();
     y.as_slice_mut()
-        .ok_or(Error::ContiguityError(
-            "cannot project vector that is not contiguous",
-        ))?
+        .ok_or(Error::new("cannot project vector that is not contiguous"))?
         // .expect("x is not contiguous, slicing failed")
         .sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
     // .expect("cannot process nans"));
@@ -120,6 +118,18 @@ pub fn project_simplex(mut x: ArrayViewMut1<f64>) -> Result<(), Error> {
     Ok(())
 }
 
+/// Calculate the generalized projection of x on the simplex:
+/// returns argmin_y (y-x)'A(y-x) s.t. y>=0, sum(y)=1.
+///
+/// This is a bare implementation of the barrier method with
+/// trust-region Newton updates and a Lagrange-relaxed equality constraint.
+///
+/// Every iteration, a Newton step is taken on the lagrange-relaxed problem
+/// min_y (y-x)'A(y-x) - m * i'ln(y) - l(i'y - 1)
+/// (with i the all-ones-vector, l the lagrange multiplier and m the barrier method parameter),
+/// where the stepsize is reduced if necessary to ensure y>=0.
+/// Blindly trusting that the error decreased an order of magnitude, m is halved
+/// in the next iteration.
 pub fn project_simplex_general(
     x: ArrayView1<f64>,
     pos_def: ArrayView2<f64>,
@@ -137,13 +147,13 @@ pub fn project_simplex_general(
                 temp[(idx, idx)] += m * y[idx].powi(-2);
             }
             temp.factorizec(UPLO::Upper)
-                .map_err(|_| Error::SolveError(&"could not Choleski H"))?
+                .map_err(|_| Error::new(&"could not Choleski H"))?
         };
         h.solvec_inplace(&mut g1)
-            .map_err(|_| Error::SolveError(&"could not solve H^{-1} g"))?;
+            .map_err(|_| Error::new(&"could not solve H^{-1} g"))?;
         let h_inv_i = h
             .solvec(&iota)
-            .map_err(|_| Error::SolveError(&"could not solve H^{-1} iota"))?;
+            .map_err(|_| Error::new(&"could not solve H^{-1} iota"))?;
         let lambda = g1.scalar_sum() / h_inv_i.scalar_sum();
         g1.scaled_add(-lambda, &h_inv_i);
 
@@ -153,21 +163,8 @@ pub fn project_simplex_general(
     let mut m = 1f64 / k as f64;
     let mut y_ = x.to_owned();
 
-    for c in 0..max_iter {
+    for _ in 0..max_iter {
         if y.all_close(&y_, 1e-8) {
-            // if y.fold(1f64, |acc, &yi| {
-            //     if acc.partial_cmp(&yi) == Some(std::cmp::Ordering::Less) {
-            //         acc
-            //     } else {
-            //         yi
-            //     }
-            // }) < 0f64
-            //     || y.scalar_sum() > 1f64 + 1e-12
-            // {
-            //     eprintln!("{}", y);
-            //     return Err(Error::SolveError("Y became invalid"));
-            // }
-            // eprintln!("n iterations: {}", c);
             return Ok(y);
         }
         let dir = step(y.view(), m)?;
@@ -186,7 +183,7 @@ pub fn project_simplex_general(
             m /= 2f64;
         }
     }
-    Err(Error::ConvergenceError(
+    Err(Error::new(
         "generalized projection algorithm did not converge on a feasible solution",
     ))
 }

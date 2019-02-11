@@ -5,5 +5,12 @@ authors = ["sebasv <mail@sebastiaanvermeulen.nl>"]
 edition = "2018"
 
 [dependencies]
-online-python = {path = "../."}
+online-python-src = {path = "../online-python-src"}
 rand = "0.6"
+ndarray = "0.12"
+
+[profile.dev]
+opt-level = 3
+
+[profile.release]
+opt-level = 3

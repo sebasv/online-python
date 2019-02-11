@@ -1,7 +1,9 @@
-pub mod online_gradient_descent;
-pub mod online_newton;
-pub mod processors;
-pub mod util;
+mod gradient_descent;
+mod newton;
+mod processors;
+mod util;
+
+pub mod prelude;
 
 #[macro_use]
 extern crate ndarray;
@@ -24,7 +26,7 @@ pub struct StepResult {
 }
 
 impl StepResult {
-    fn step<S>(
+    pub fn step<S>(
         mut x: ArrayViewMut1<f64>,
         r: ArrayView1<f64>,
         cost: f64,
@@ -49,11 +51,25 @@ impl StepResult {
     }
 }
 
+impl std::convert::From<StepResult> for Array1<f64> {
+    fn from(sr: StepResult) -> Array1<f64> {
+        let mut vec = Vec::with_capacity(3);
+        vec.push(sr.gross_growth);
+        vec.push(sr.transacted);
+        vec.push(sr.cash);
+        Array1::from_vec(vec)
+    }
+}
+
 #[derive(Debug)]
-pub enum Error {
-    NaNError(&'static str),
-    ContiguityError(&'static str),
-    SolveError(&'static str),
-    InvalidMethodError(&'static str),
-    ConvergenceError(&'static str),
+pub struct Error {
+    pub message: String,
+}
+
+impl Error {
+    pub fn new(message: &str) -> Error {
+        Error {
+            message: message.to_owned(),
+        }
+    }
 }
