@@ -50,6 +50,38 @@ where
                 .enumerate()
                 .filter_map(|(i, &mij)| if mij { Some(i) } else { None })
                 .collect::<Vec<usize>>();
+
+            let (total_sold, n_empty) = active_set.iter().zip(mi.iter()).enumerate().fold(
+                (0f64, new_active_indices.len() - active_indices.len()),
+                |(acc, ((o, n), i))| {
+                    if o && !n {
+                        (acc.0 + x[i], acc.1 + 1)
+                    } else {
+                        acc
+                    }
+                },
+            );
+
+            // TODO replace the elements of x that are invalidated by total_sold/n_empty, verifying that order and size are correct
+            x = {
+                let mut t = Array1::ones(new_active_indices.len()) * total_sold / n_empty as f64;
+                for (i, xi) in active_indices.iter().zip(x.iter()) {
+                    t[i] = xi;
+                }
+                t.iter().zip(mi).filter_map()
+            };
+            active_set
+                .iter()
+                .zip(mi.iter())
+                .enumerate()
+                .filter_map(|((o, n), i)| {
+                    if n {
+                        if o {
+                            x[i]
+                        }
+                    }
+                });
+
             // create warm start for new set and
             let warm_start_k = new_active_indices.len();
             let mut x_new = Array1::ones(warm_start_k) / warm_start_k as f64;

@@ -38,7 +38,7 @@ impl Step for GradientDescent {
     ) -> Result<(), Error> {
         self.t += 1;
         let g = self.grad.grad(y, x.view(), r, self.lambda, self.cost)?;
-        x.scaled_add((self.a * (self.t as f64).sqrt()).recip(), &g);
+        x.scaled_add((self.a * self.t as f64).recip(), &g);
         project_simplex(x.view_mut())?;
         Ok(())
     }
