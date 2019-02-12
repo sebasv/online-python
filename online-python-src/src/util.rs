@@ -7,16 +7,19 @@ pub enum Grad {
     ///     growth^(1-lambda) - 1
     ///     ---------------------
     ///          1 - lambda
+    /// exp-convex only for alpha <= lambda = 1
     Power,
 
     /// gradient of
     ///     1 - e^(-lambda * growth)
     ///     ------------------------
     ///             lambda
+    /// exp-convex for alpha <= lambda
     Exp,
 
     /// gradient of
     ///     growth - lambda * (growth)^2
+    /// never exp-convex
     Quad,
 }
 
@@ -62,6 +65,7 @@ pub fn prepare_grad(
     let growth = (1f64 - csa) * xr;
     let d_growth = (1f64 - csa) * (&r + &(&s * cost * xr / (1f64 - cost * s.dot(&x))));
     Ok((growth, d_growth))
+    // Ok((1f64 + growth.ln(), &d_growth / growth))
 }
 
 /// To rebalance fractions w_i to fractions x_i at cost cost, we must subtract
@@ -97,7 +101,7 @@ pub fn transaction_volume(
         ));
     }
     if w.len() != x.len() {
-        return Err(Error::new("lengths of r and x must match"));
+        return Err(Error::new("lengths of y and x must match"));
     }
     if cost < 0f64 || cost >= 1f64 {
         return Err(Error::new("cost must be from [0,1)"));

@@ -87,7 +87,7 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
         to_pyresult_vec(op::transaction_volume(w.as_array(), x.as_array(), cost), py)
     }
 
-    /// fn gradient(x, r, lambda, cost)
+    /// fn gradient(y, x, r, lambda, cost, utility)
     #[pyfn(m, "gradient")]
     fn gradient(
         py: Python,

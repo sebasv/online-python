@@ -10,11 +10,6 @@ extern crate ndarray;
 extern crate ndarray_linalg;
 use ndarray::prelude::*;
 
-// pub trait Build {
-//     type BuildResult: Step;
-//     fn build(&self, n: usize) -> Self::BuildResult;
-// }
-
 pub trait Reset {
     fn reset(&mut self, n: usize);
 }
@@ -45,16 +40,15 @@ impl StepResult {
     where
         S: Step,
     {
+        // y tracks the actual allocation, x the desired one.
         let transacted = util::transaction_cost(y.view(), x.view(), cost)?;
         let cash = x[0];
 
-        let mut xr = &x * &r;
-        let gross_growth = xr.scalar_sum();
-        xr /= gross_growth;
+        y.assign(&(&x * &r));
+        let gross_growth = y.scalar_sum();
+        y /= gross_growth;
 
         stepper.step(y.view(), x.view_mut(), r)?;
-
-        y.assign(&xr);
 
         Ok(StepResult {
             gross_growth,
