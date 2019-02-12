@@ -10,13 +10,22 @@ extern crate ndarray;
 extern crate ndarray_linalg;
 use ndarray::prelude::*;
 
-pub trait Build {
-    type BuildResult: Step;
-    fn build(&self, n: usize) -> Self::BuildResult;
+// pub trait Build {
+//     type BuildResult: Step;
+//     fn build(&self, n: usize) -> Self::BuildResult;
+// }
+
+pub trait Reset {
+    fn reset(&mut self, n: usize);
 }
 
 pub trait Step {
-    fn step(&mut self, x: ArrayViewMut1<f64>, r: ArrayView1<f64>) -> Result<(), Error>;
+    fn step(
+        &mut self,
+        y: ArrayView1<f64>,
+        x: ArrayViewMut1<f64>,
+        r: ArrayView1<f64>,
+    ) -> Result<(), Error>;
 }
 
 pub struct StepResult {
@@ -27,6 +36,7 @@ pub struct StepResult {
 
 impl StepResult {
     pub fn step<S>(
+        mut y: ArrayViewMut1<f64>,
         mut x: ArrayViewMut1<f64>,
         r: ArrayView1<f64>,
         cost: f64,
@@ -35,14 +45,17 @@ impl StepResult {
     where
         S: Step,
     {
+        let transacted = util::transaction_cost(y.view(), x.view(), cost)?;
+        let cash = x[0];
+
         let mut xr = &x * &r;
         let gross_growth = xr.scalar_sum();
-        let cash = x[0];
         xr /= gross_growth;
 
-        stepper.step(x.view_mut(), r)?;
+        stepper.step(y.view(), x.view_mut(), r)?;
 
-        let transacted = util::transaction_cost(xr.view(), x.view(), cost)?;
+        y.assign(&xr);
+
         Ok(StepResult {
             gross_growth,
             cash,

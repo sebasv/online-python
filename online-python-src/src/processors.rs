@@ -1,22 +1,23 @@
 use crate::util::transaction_cost;
-use crate::{Build, Error, Step, StepResult};
+use crate::{Error, Reset, Step, StepResult};
 use ndarray::prelude::*;
+use std::f64;
 
 pub fn step_constituents<M>(
     cost: f64,
     r: ArrayView2<f64>,
     m: ArrayView2<bool>,
-    method: M,
+    mut method: M,
 ) -> Result<Array2<f64>, Error>
 where
-    M: Build,
+    M: Reset + Step,
 {
     let (n_obs, n_assets) = m.dim();
-    let mut out = Array2::ones((n_obs, 3));
+    let mut out = Array2::from_elem((n_obs, 3), f64::NAN);
     let mut x = Array1::zeros(n_assets);
+    let mut y = Array1::zeros(n_assets);
     let mut active_set = Array1::from_elem(n_assets, false);
     let mut active_indices = Vec::new();
-    let mut gd = method.build(0);
 
     let starts: Vec<usize> = r
         .t()
@@ -51,7 +52,9 @@ where
                 .collect::<Vec<usize>>();
             // create warm start for new set and
             let warm_start_k = new_active_indices.len();
-            let mut y = Array1::ones(warm_start_k) / warm_start_k as f64;
+            let mut x_new = Array1::ones(warm_start_k) / warm_start_k as f64;
+            let mut y_new = Array1::zeros(warm_start_k);
+            y_new[0] = 1f64;
             // ... do warm start ...
             let max_start =
                 new_active_indices
@@ -67,10 +70,12 @@ where
                 temp
             };
 
-            // reset gd
-            gd = method.build(warm_start_k);
+            // reset method
+            method.reset(warm_start_k);
             for ri in warm_start_r.outer_iter() {
-                gd.step(y.view_mut(), ri)?;
+                let xr = &x_new * &ri;
+                method.step(y_new.view(), x_new.view_mut(), ri)?;
+                y_new.assign(&(&xr / xr.scalar_sum()));
             }
             // volume required to alter the strategy:
             if i > 0 {
@@ -79,23 +84,28 @@ where
                     .zip(&active_indices)
                     .for_each(|(&xi, &i)| mock_x[i] = xi);
                 let mut mock_y = Array1::zeros(n_assets);
-                y.iter()
+                x_new
+                    .iter()
                     .zip(&new_active_indices)
                     .for_each(|(&yi, &i)| mock_y[i] = yi);
                 let transacted = transaction_cost(mock_x.view(), mock_y.view(), cost)?;
-                out[(i - 1, 2)] = transacted;
+                out[(i, 2)] = transacted;
             }
-            x = y;
+            x = x_new;
+            y = y_new;
             active_set = mi.to_owned();
             active_indices = new_active_indices;
         }
         // do a step, assume x fits
         let ri = Array1::from_iter(active_indices.iter().map(|&j| r[(i, j)]));
-        let step_result = StepResult::step(x.view_mut(), ri.view(), cost, &mut gd)?;
-        // gd.step(x.view_mut(), ri.view())?;
+        let step_result =
+            StepResult::step(y.view_mut(), x.view_mut(), ri.view(), cost, &mut method)?;
         out[(i, 0)] = step_result.gross_growth;
         out[(i, 1)] = step_result.cash;
-        out[(i, 2)] = step_result.transacted;
+        if out[(i, 2)].is_nan() {
+            // transaction cost haven't been set yet
+            out[(i, 2)] = step_result.transacted;
+        }
     }
     Ok(out)
 }
@@ -104,17 +114,18 @@ pub fn step_all<M>(
     cost: f64,
     x0: ArrayView1<f64>,
     data: ArrayView2<f64>,
-    method: M,
+    mut method: M,
 ) -> Result<Array2<f64>, Error>
 where
-    M: Build,
+    M: Reset + Step,
 {
-    let mut gd = method.build(x0.len());
+    // let mut gd = method.reset(x0.len());
     let mut x = x0.to_owned();
+    let mut y = Array1::zeros(x0.len());
+    y[0] = 1f64;
     let mut out = Array2::zeros((data.shape()[0], 3));
     for (r, mut o) in data.outer_iter().zip(out.outer_iter_mut()) {
-        let step_result = StepResult::step(x.view_mut(), r, cost, &mut gd)?;
-        // let step_result = gd.step(x.view_mut(), r)?;
+        let step_result = StepResult::step(y.view_mut(), x.view_mut(), r, cost, &mut method)?;
         o[0] = step_result.gross_growth;
         o[1] = step_result.cash;
         o[2] = step_result.transacted;

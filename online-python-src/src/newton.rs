@@ -1,31 +1,40 @@
-use crate::util::{grad, project_simplex_general};
-use crate::{Build, Error, Step};
+use crate::util::{project_simplex_general, Grad};
+use crate::{Error, Reset, Step};
 use ndarray::prelude::*;
 
-pub struct NewtonBuilder {
-    beta: f64,
-    max_iter: usize,
-    lambda: f64,
-    cost: f64,
-}
+// pub struct NewtonBuilder {
+//     beta: f64,
+//     max_iter: usize,
+//     lambda: f64,
+//     cost: f64,
+//     grad: Grad,
+// }
 
-impl NewtonBuilder {
-    pub fn new(beta: f64, max_iter: usize, lambda: f64, cost: f64) -> NewtonBuilder {
-        NewtonBuilder {
-            beta,
-            max_iter,
-            lambda,
-            cost,
-        }
-    }
-}
+// impl NewtonBuilder {
+//     pub fn new(beta: f64, max_iter: usize, lambda: f64, cost: f64, grad: Grad) -> NewtonBuilder {
+//         NewtonBuilder {
+//             beta,
+//             max_iter,
+//             lambda,
+//             cost,
+//             grad,
+//         }
+//     }
+// }
 
-impl Build for NewtonBuilder {
-    type BuildResult = Newton;
-    fn build(&self, n: usize) -> Newton {
-        Newton::new(self.beta, self.max_iter, self.lambda, self.cost, n)
-    }
-}
+// impl Build for NewtonBuilder {
+//     type BuildResult = Newton;
+//     fn build(&self, n: usize) -> Newton {
+//         Newton::new(
+//             self.beta,
+//             self.max_iter,
+//             self.lambda,
+//             self.cost,
+//             self.grad,
+//             n,
+//         )
+//     }
+// }
 
 pub struct Newton {
     approx_hessian_inv: Array2<f64>,
@@ -35,10 +44,11 @@ pub struct Newton {
     beta: f64,
     lambda: f64,
     cost: f64,
+    grad: Grad,
 }
 
 impl Newton {
-    pub fn new(beta: f64, max_iter: usize, lambda: f64, cost: f64, n: usize) -> Newton {
+    pub fn new(beta: f64, max_iter: usize, lambda: f64, cost: f64, grad: Grad, n: usize) -> Newton {
         let eps = beta.powi(2).recip();
         Newton {
             approx_hessian: Array2::eye(n) * eps,
@@ -48,6 +58,7 @@ impl Newton {
             beta,
             lambda,
             cost,
+            grad,
         }
     }
 
@@ -64,11 +75,26 @@ impl Newton {
     }
 }
 
+impl Reset for Newton {
+    fn reset(&mut self, n: usize) {
+        self.t = 0;
+        let eps = self.beta.powi(2).recip();
+        self.approx_hessian = Array2::eye(n) * eps;
+        self.approx_hessian_inv = Array2::eye(n) / eps;
+    }
+}
+
 impl Step for Newton {
     #[inline]
-    fn step(&mut self, mut x: ArrayViewMut1<f64>, r: ArrayView1<f64>) -> Result<(), Error> {
+    fn step(
+        &mut self,
+        y: ArrayView1<f64>,
+        mut x: ArrayViewMut1<f64>,
+        r: ArrayView1<f64>,
+    ) -> Result<(), Error> {
         self.t += 1;
-        let g = grad(x.view(), r, self.lambda, self.cost)?;
+        let g = self.grad.grad(y, x.view(), r, self.lambda, self.cost)?;
+        // let g = grad(x.view(), r, self.lambda, self.cost)?;
         self.update_approx_hessian(g.view());
         x -= &(self.approx_hessian_inv.dot(&g) / self.beta);
 

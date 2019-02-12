@@ -1,28 +1,67 @@
 #![feature(specialization)]
 extern crate online_python_src;
-use online_python_src::*;
+use online_python_src::prelude as op;
 mod version;
 
 extern crate ndarray;
 extern crate ndarray_linalg;
 extern crate numpy;
+// #[macro_use]
 extern crate pyo3;
 
 #[cfg(test)]
 extern crate rand;
 
 use ndarray::prelude::*;
-use numpy::{IntoPyArray, PyArray1, PyArray2};
+use numpy::{IntoPyArray, PyArray, PyArray1, PyArray2};
 use pyo3::prelude::*;
+use pyo3::{PyErrArguments, PyErrValue};
 
-fn to_pyerr(x: Error) -> PyErr {
-    match x {
-        Error::ValueError(x) => pyo3::exceptions::ValueError::py_err(x),
-        Error::ContiguityError(x) => pyo3::exceptions::ValueError::py_err(x),
-        Error::SolveError(x) => pyo3::exceptions::ValueError::py_err(x),
-        Error::InvalidMethodError(x) => pyo3::exceptions::ValueError::py_err(x),
-        Error::ConvergenceError(x) => pyo3::exceptions::ValueError::py_err(x),
+struct PythonizableError {
+    message: String,
+}
+
+impl std::convert::From<op::Error> for PythonizableError {
+    fn from(err: op::Error) -> PythonizableError {
+        PythonizableError {
+            message: err.message,
+        }
     }
+}
+
+use std::fmt;
+impl fmt::Display for PythonizableError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "<Rust error>: {}", self.message)
+    }
+}
+
+macro_rules! impl_to_pyerr {
+    ($err: ty, $pyexc: ty) => {
+        impl PyErrArguments for $err {
+            fn arguments(&self, py: Python) -> PyObject {
+                self.to_string().to_object(py)
+            }
+        }
+
+        impl std::convert::From<$err> for PyErr {
+            fn from(err: $err) -> PyErr {
+                PyErr::from_value::<$pyexc>(PyErrValue::ToArgs(Box::new(err)))
+            }
+        }
+    };
+}
+impl_to_pyerr!(PythonizableError, pyo3::exceptions::ValueError);
+
+fn to_pyresult_vec<F, D>(r: Result<F, op::Error>, py: Python) -> PyResult<Py<PyArray<f64, D>>>
+where
+    D: Dimension,
+    F: Into<Array<f64, D>>,
+{
+    Ok(r.map_err(PythonizableError::from)?
+        .into()
+        .into_pyarray(py)
+        .to_owned())
 }
 
 /// The module docstring
@@ -45,25 +84,25 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
         x: &PyArray1<f64>,
         cost: f64,
     ) -> PyResult<Py<PyArray1<f64>>> {
-        Ok(util::transaction_volume(w.as_array(), x.as_array(), cost)
-            .map_err(to_pyerr)?
-            .into_pyarray(py)
-            .to_owned())
+        to_pyresult_vec(op::transaction_volume(w.as_array(), x.as_array(), cost), py)
     }
 
     /// fn gradient(x, r, lambda, cost)
     #[pyfn(m, "gradient")]
     fn gradient(
         py: Python,
+        y: &PyArray1<f64>,
         x: &PyArray1<f64>,
         r: &PyArray1<f64>,
         lambda: f64,
         cost: f64,
+        utility: &str,
     ) -> PyResult<Py<PyArray1<f64>>> {
-        Ok(util::grad(x.as_array(), r.as_array(), lambda, cost)
-            .map_err(to_pyerr)?
-            .into_pyarray(py)
-            .to_owned())
+        let g = grad(utility)?;
+        to_pyresult_vec(
+            g.grad(y.as_array(), x.as_array(), r.as_array(), lambda, cost),
+            py,
+        )
     }
 
     /// fn project(x)
@@ -71,8 +110,9 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
     /// x is projected in-place.
     #[pyfn(m, "project_simplex")]
     fn project_py(_py: Python, x: &PyArray1<f64>) -> PyResult<()> {
-        util::project_simplex(x.as_array_mut()).map_err(to_pyerr)?;
-        Ok(())
+        op::project_simplex(x.as_array_mut())
+            .map_err(PythonizableError::from)
+            .map_err(PyErr::from)
     }
 
     /// fn project_simplex_general(x, pos_def, max_iter)
@@ -86,11 +126,9 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
         pos_def: &PyArray2<f64>,
         max_iter: usize,
     ) -> PyResult<Py<PyArray1<f64>>> {
-        Ok(
-            util::project_simplex_general(x.as_array(), pos_def.as_array(), max_iter)
-                .map_err(to_pyerr)?
-                .into_pyarray(py)
-                .to_owned(),
+        to_pyresult_vec(
+            op::project_simplex_general(x.as_array(), pos_def.as_array(), max_iter),
+            py,
         )
     }
 
@@ -108,11 +146,9 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
         r: &PyArray2<f64>,
         m: &PyArray2<bool>,
     ) -> PyResult<Py<PyArray2<f64>>> {
-        Ok(
-            processors::step_constituents_fixed(cost, x.as_array(), r.as_array(), m.as_array())
-                .map_err(to_pyerr)?
-                .into_pyarray(py)
-                .to_owned(),
+        to_pyresult_vec(
+            op::step_constituents_fixed(cost, x.as_array(), r.as_array(), m.as_array()),
+            py,
         )
     }
 
@@ -122,19 +158,37 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
     Ok(())
 }
 
+fn grad(utility: &str) -> PyResult<op::Grad> {
+    match utility {
+        "power" => Ok(op::Grad::Power),
+        "exp" => Ok(op::Grad::Exp),
+        "quad" => Ok(op::Grad::Quad),
+        _ => Err(PyErr::new::<pyo3::exceptions::ValueError, _>(
+            "Did not recognise utility function. Pick one of {'power','exp','quad'}",
+        )),
+    }
+}
+
 #[pyclass]
 struct GradientDescent {
-    gd: online_gradient_descent::GradientDescent,
+    gd: op::GradientDescent,
     cost: f64,
 }
 
 #[pymethods]
 impl GradientDescent {
-    /// GradientDescent(alpha, gamma, cost)
+    /// GradientDescent(alpha, gamma, cost, utility)
     #[new]
-    fn __new__(obj: &PyRawObject, alpha: f64, gamma: f64, cost: f64) -> PyResult<()> {
+    fn __new__(
+        obj: &PyRawObject,
+        alpha: f64,
+        lambda: f64,
+        cost: f64,
+        utility: &str,
+    ) -> PyResult<()> {
+        let g = grad(utility)?;
         obj.init(|_| GradientDescent {
-            gd: online_gradient_descent::GradientDescent::new(alpha, gamma, cost),
+            gd: op::GradientDescent::new(alpha, lambda, cost, g),
             cost,
         })
     }
@@ -143,19 +197,23 @@ impl GradientDescent {
     fn step(
         &mut self,
         py: Python,
+        y: &PyArray1<f64>,
         x: &PyArray1<f64>,
         r: &PyArray1<f64>,
     ) -> PyResult<Py<PyArray1<f64>>> {
-        let step_result = StepResult::step(x.as_array_mut(), r.as_array(), self.cost, &mut self.gd)
-            .map_err(to_pyerr)?;
-        let mut a = Array1::zeros(3);
-        a[0] = step_result.gross_growth;
-        a[1] = step_result.cash;
-        a[2] = step_result.transacted;
-        Ok(a.into_pyarray(py).to_owned())
+        to_pyresult_vec(
+            op::StepResult::step(
+                y.as_array_mut(),
+                x.as_array_mut(),
+                r.as_array(),
+                self.cost,
+                &mut self.gd,
+            ),
+            py,
+        )
     }
 
-    /// fn step_constituents(a, lambda, x0, r, m, method) -> out
+    /// fn step_constituents(a, lambda, x0, r, m, method, utility) -> out
     /// a: alpha-exp-concavity (1)
     /// lambda: risk aversion
     /// data: matrix of rows of return data
@@ -169,19 +227,21 @@ impl GradientDescent {
         cost: f64,
         r: &PyArray2<f64>,
         m: &PyArray2<bool>,
+        utility: &str,
     ) -> PyResult<Py<PyArray2<f64>>> {
-        Ok(processors::step_constituents(
-            cost,
-            r.as_array(),
-            m.as_array(),
-            online_gradient_descent::GradientBuilder::new(a, lambda, cost),
+        let g = grad(utility)?;
+        to_pyresult_vec(
+            op::step_constituents(
+                cost,
+                r.as_array(),
+                m.as_array(),
+                op::GradientDescent::new(a, lambda, cost, g),
+            ),
+            py,
         )
-        .map_err(to_pyerr)?
-        .into_pyarray(py)
-        .to_owned())
     }
 
-    /// fn step_all(a,lambda, cost, x0, data) -> results
+    /// fn step_all(a,lambda, cost, x0, data, utility) -> results
     /// a: alpha-exp-concavity (1)
     /// lambda: risk aversion
     /// x0: starting allocation
@@ -195,28 +255,30 @@ impl GradientDescent {
         cost: f64,
         x0: &PyArray1<f64>,
         data: &PyArray2<f64>,
+        utility: &str,
     ) -> PyResult<Py<PyArray2<f64>>> {
-        Ok(processors::step_all(
-            cost,
-            x0.as_array(),
-            data.as_array(),
-            online_gradient_descent::GradientBuilder::new(a, lambda, cost),
+        let g = grad(utility)?;
+        to_pyresult_vec(
+            op::step_all(
+                cost,
+                x0.as_array(),
+                data.as_array(),
+                op::GradientDescent::new(a, lambda, cost, g),
+            ),
+            py,
         )
-        .map_err(to_pyerr)?
-        .into_pyarray(py)
-        .to_owned())
     }
 }
 
 #[pyclass]
 struct Newton {
-    gd: online_newton::Newton,
+    gd: op::Newton,
     cost: f64,
 }
 
 #[pymethods]
 impl Newton {
-    /// Newton(beta, eps, n, max_iter, gamma, cost)
+    /// Newton(beta, eps, n, max_iter, gamma, cost, utility, n)
     /// beta:
     /// eps:
     #[new]
@@ -227,34 +289,40 @@ impl Newton {
         max_iter: usize,
         gamma: f64,
         cost: f64,
+        utility: &str,
     ) -> PyResult<()> {
+        let g = grad(utility)?;
         obj.init(|_| Newton {
-            gd: online_newton::Newton::new(beta, max_iter, gamma, cost, n),
+            gd: op::Newton::new(beta, max_iter, gamma, cost, g, n),
             cost,
         })
     }
 
-    /// fn step(x, r) -> [gross_growth, cash, transacted]
+    /// fn step(y, x, r) -> [gross_growth, cash, transacted]
     fn step(
         &mut self,
         py: Python,
+        y: &PyArray1<f64>,
         x: &PyArray1<f64>,
         r: &PyArray1<f64>,
     ) -> PyResult<Py<PyArray1<f64>>> {
-        let step_result = StepResult::step(x.as_array_mut(), r.as_array(), self.cost, &mut self.gd)
-            .map_err(to_pyerr)?;
-        let mut a = Array1::zeros(3);
-        a[0] = step_result.gross_growth;
-        a[1] = step_result.cash;
-        a[2] = step_result.transacted;
-        Ok(a.into_pyarray(py).to_owned())
+        to_pyresult_vec(
+            op::StepResult::step(
+                y.as_array_mut(),
+                x.as_array_mut(),
+                r.as_array(),
+                self.cost,
+                &mut self.gd,
+            ),
+            py,
+        )
     }
 
     fn hess(&self, py: Python) -> PyResult<Py<PyArray2<f64>>> {
         Ok(self.gd.approx_hessian.clone().into_pyarray(py).to_owned())
     }
 
-    /// fn step_constituents(beta, max_iter, lambda, cost, r, m) -> out
+    /// fn step_constituents(beta, max_iter, lambda, cost, r, m, utility) -> out
     #[staticmethod]
     fn step_constituents(
         py: Python,
@@ -264,19 +332,22 @@ impl Newton {
         cost: f64,
         r: &PyArray2<f64>,
         m: &PyArray2<bool>,
+        utility: &str,
     ) -> PyResult<Py<PyArray2<f64>>> {
-        Ok(processors::step_constituents(
-            cost,
-            r.as_array(),
-            m.as_array(),
-            online_newton::NewtonBuilder::new(beta, max_iter, lambda, cost),
+        let g = grad(utility)?;
+        let n = r.shape()[1];
+        to_pyresult_vec(
+            op::step_constituents(
+                cost,
+                r.as_array(),
+                m.as_array(),
+                op::Newton::new(beta, max_iter, lambda, cost, g, n),
+            ),
+            py,
         )
-        .map_err(to_pyerr)?
-        .into_pyarray(py)
-        .to_owned())
     }
 
-    /// fn step_all(beta, max_iter, lambda, cost, x0, data) -> results
+    /// fn step_all(beta, max_iter, lambda, cost, x0, data, utility) -> results
     /// beta:
     /// max_iter:
     /// lambda: risk aversion
@@ -292,15 +363,18 @@ impl Newton {
         cost: f64,
         x0: &PyArray1<f64>,
         data: &PyArray2<f64>,
+        utility: &str,
     ) -> PyResult<Py<PyArray2<f64>>> {
-        Ok(processors::step_all(
-            cost,
-            x0.as_array(),
-            data.as_array(),
-            online_newton::NewtonBuilder::new(beta, max_iter, lambda, cost),
+        let n = x0.shape()[0];
+        let g = grad(utility)?;
+        to_pyresult_vec(
+            op::step_all(
+                cost,
+                x0.as_array(),
+                data.as_array(),
+                op::Newton::new(beta, max_iter, lambda, cost, g, n),
+            ),
+            py,
         )
-        .map_err(to_pyerr)?
-        .into_pyarray(py)
-        .to_owned())
     }
 }

@@ -2,7 +2,43 @@ use super::Error;
 use ndarray::prelude::*;
 use ndarray_linalg::{FactorizeC, SolveC, UPLO};
 
-pub fn check_grad_input(
+pub enum Grad {
+    /// gradient of
+    ///     growth^(1-lambda) - 1
+    ///     ---------------------
+    ///          1 - lambda
+    Power,
+
+    /// gradient of
+    ///     1 - e^(-lambda * growth)
+    ///     ------------------------
+    ///             lambda
+    Exp,
+
+    /// gradient of
+    ///     growth - lambda * (growth)^2
+    Quad,
+}
+
+impl Grad {
+    pub fn grad(
+        &self,
+        y: ArrayView1<f64>,
+        x: ArrayView1<f64>,
+        r: ArrayView1<f64>,
+        lambda: f64,
+        cost: f64,
+    ) -> Result<Array1<f64>, Error> {
+        let (growth, d_growth) = prepare_grad(y, x, r, lambda, cost)?;
+        match self {
+            Grad::Quad => Ok(&d_growth * (1f64 - lambda * 2f64 * growth)),
+            Grad::Exp => Ok(&d_growth * (-lambda * growth).exp()),
+            Grad::Power => Ok(d_growth.mapv(|el| el.powf(-lambda))),
+        }
+    }
+}
+
+pub fn prepare_grad(
     y: ArrayView1<f64>,
     x: ArrayView1<f64>,
     r: ArrayView1<f64>,
@@ -26,80 +62,6 @@ pub fn check_grad_input(
     let growth = (1f64 - csa) * xr;
     let d_growth = (1f64 - csa) * (&r + &(&s * cost * xr / (1f64 - cost * s.dot(&x))));
     Ok((growth, d_growth))
-}
-
-/// gradient of growth - lambda * (growth)^2
-pub fn grad_quad(
-    y: ArrayView1<f64>,
-    x: ArrayView1<f64>,
-    r: ArrayView1<f64>,
-    lambda: f64,
-    cost: f64,
-) -> Result<Array1<f64>, Error> {
-    let (growth, d_growth) = check_grad_input(y, x, r, lambda, cost)?;
-
-    Ok(&d_growth * (1f64 - lambda * 2f64 * growth))
-}
-
-/// gradient of
-///     1 - e^(-lambda * growth)
-///     ------------------------
-///             lambda
-pub fn grad_exp(
-    y: ArrayView1<f64>,
-    x: ArrayView1<f64>,
-    r: ArrayView1<f64>,
-    lambda: f64,
-    cost: f64,
-) -> Result<Array1<f64>, Error> {
-    let (growth, d_growth) = check_grad_input(y, x, r, lambda, cost)?;
-
-    Ok(&d_growth * (-lambda * growth).exp())
-}
-
-/// gradient of
-///     growth^(1-lambda) - 1
-///     ---------------------
-///          1 - lambda
-pub fn grad_pow(
-    y: ArrayView1<f64>,
-    x: ArrayView1<f64>,
-    r: ArrayView1<f64>,
-    lambda: f64,
-    cost: f64,
-) -> Result<Array1<f64>, Error> {
-    let (growth, d_growth) = check_grad_input(y, x, r, lambda, cost)?;
-
-    Ok(d_growth.mapv(|el| el.powf(-lambda)))
-}
-
-/// The gradient of the log-risk adjusted growth:
-///     
-///     `x.dot(&r).ln() - (1f64 - cost * a.mapv(f64::abs).scalar_sum()).ln() - lambda * x.dot(&r).ln().pow(2)`
-///
-/// Set cost=0 to eliminate transaction costs,
-/// set lambda=0 to eliminate risk adjustment.
-#[inline]
-pub fn grad(
-    y: ArrayView1<f64>,
-    x: ArrayView1<f64>,
-    r: ArrayView1<f64>,
-    lambda: f64,
-    cost: f64,
-) -> Result<Array1<f64>, Error> {
-    check_grad_input(y, x, r, lambda, cost)?;
-    let xr = x.dot(&r);
-    let x_r = &(&x * &r) / (xr + 1f64 - x.scalar_sum());
-
-    let a = transaction_volume(x_r.view(), x, cost)?;
-    let s = a.mapv(f64::signum);
-
-    let xrs = x.dot(&(&s * &r));
-    let b = 1f64 - cost * x.dot(&s);
-    // r minus c times s' times derivative of (a times x' times r)
-    let r_csdaxr = (&r + &(&s * &((xr - cost * xrs) / b - &r) * cost)) / b;
-
-    Ok(&r_csdaxr / (xr * (1f64 - cost * s.dot(&a))) - &r * 2f64 * lambda * xr.ln() / xr)
 }
 
 /// To rebalance fractions w_i to fractions x_i at cost cost, we must subtract
@@ -157,7 +119,7 @@ pub fn transaction_volume(
 
 #[inline]
 pub fn transaction_cost(w: ArrayView1<f64>, x: ArrayView1<f64>, cost: f64) -> Result<f64, Error> {
-    transaction_volume(w, x, cost).map(|a| a.mapv(f64::abs).scalar_sum())
+    transaction_volume(w, x, cost).map(|a| a.mapv(f64::abs).scalar_sum() * cost)
 }
 
 /// Projection onto the simplex. Essentially, this constitutes a projection
