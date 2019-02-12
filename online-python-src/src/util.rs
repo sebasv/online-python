@@ -33,7 +33,7 @@ impl Grad {
         match self {
             Grad::Quad => Ok(&d_growth * (1f64 - lambda * 2f64 * growth)),
             Grad::Exp => Ok(&d_growth * (-lambda * growth).exp()),
-            Grad::Power => Ok(d_growth.mapv(|el| el.powf(-lambda))),
+            Grad::Power => Ok(d_growth * growth.powf(-lambda)),
         }
     }
 }

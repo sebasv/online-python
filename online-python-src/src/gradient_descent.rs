@@ -24,7 +24,7 @@ impl GradientDescent {
 }
 
 impl Reset for GradientDescent {
-    fn reset(&mut self, n: usize) {
+    fn reset(&mut self, _n: usize) {
         self.t = 0;
     }
 }
