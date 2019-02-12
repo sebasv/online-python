@@ -2,40 +2,6 @@ use crate::util::{project_simplex_general, Grad};
 use crate::{Error, Reset, Step};
 use ndarray::prelude::*;
 
-// pub struct NewtonBuilder {
-//     beta: f64,
-//     max_iter: usize,
-//     lambda: f64,
-//     cost: f64,
-//     grad: Grad,
-// }
-
-// impl NewtonBuilder {
-//     pub fn new(beta: f64, max_iter: usize, lambda: f64, cost: f64, grad: Grad) -> NewtonBuilder {
-//         NewtonBuilder {
-//             beta,
-//             max_iter,
-//             lambda,
-//             cost,
-//             grad,
-//         }
-//     }
-// }
-
-// impl Build for NewtonBuilder {
-//     type BuildResult = Newton;
-//     fn build(&self, n: usize) -> Newton {
-//         Newton::new(
-//             self.beta,
-//             self.max_iter,
-//             self.lambda,
-//             self.cost,
-//             self.grad,
-//             n,
-//         )
-//     }
-// }
-
 pub struct Newton {
     approx_hessian_inv: Array2<f64>,
     pub approx_hessian: Array2<f64>,

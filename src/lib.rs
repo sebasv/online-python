@@ -132,10 +132,9 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
         )
     }
 
-    /// fn step_constituents_fixed(a, lambda, x, r, m) -> out
-    /// a: alpha-exp-concavity (1)
-    /// lambda: risk aversion
-    /// x: fixed allocation
+    /// fn step_constituents_fixed(cost, x0, r, m) -> out
+    /// cost: the transaction cost
+    /// x0: fixed allocation
     /// data: matrix of rows of return data
     /// out: growth
     #[pyfn(m, "step_constituents_fixed")]

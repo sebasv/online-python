@@ -1,1 +1,1 @@
-pub const PY_VERSION: &str = "0.0.55";
+pub const PY_VERSION: &str = "0.0.56";

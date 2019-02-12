@@ -2,31 +2,6 @@ use crate::util::{project_simplex, Grad};
 use crate::{Error, Reset, Step};
 use ndarray::prelude::*;
 
-// pub struct GradientBuilder {
-//     a: f64,
-//     lambda: f64,
-//     cost: f64,
-//     grad: Grad,
-// }
-
-// impl GradientBuilder {
-//     pub fn new(a: f64, lambda: f64, cost: f64, grad: Grad) -> GradientBuilder {
-//         GradientBuilder {
-//             a,
-//             lambda,
-//             cost,
-//             grad,
-//         }
-//     }
-// }
-
-// impl Build for GradientBuilder {
-//     type BuildResult = GradientDescent;
-//     fn build(&self, _n: usize) -> GradientDescent {
-//         GradientDescent::new(self.a, self.lambda, self.cost, self.grad)
-//     }
-// }
-
 // #[derive(Clone)]
 pub struct GradientDescent {
     t: usize,
