@@ -5,7 +5,6 @@ mod util;
 
 pub mod prelude;
 
-#[macro_use]
 extern crate ndarray;
 extern crate ndarray_linalg;
 use ndarray::prelude::*;

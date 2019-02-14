@@ -14,130 +14,67 @@ where
 {
     let (n_obs, n_assets) = m.dim();
     let mut out = Array2::from_elem((n_obs, 3), f64::NAN);
-    let mut x = Array1::zeros(n_assets);
-    let mut y = Array1::zeros(n_assets);
+    let mut x = Array1::zeros(0);
+    let mut y = Array1::zeros(0);
     let mut active_set = Array1::from_elem(n_assets, false);
     let mut active_indices = Vec::new();
 
-    let starts: Vec<usize> = r
-        .t()
-        .outer_iter()
-        .map(|col| {
-            col.iter()
-                .enumerate()
-                .fold((true, usize::max_value()), |acc, (i, el)| {
-                    if acc.0 && !el.is_nan() {
-                        (false, i)
-                    } else {
-                        acc
-                    }
-                })
-                .1
-        })
-        .collect();
-    // let mut x = Array1::from_iter(starts.iter().map(|&si| if si > 0 {0f64} else {1f64}));
-    // x /= x.scalar_sum();
-
     for (i, mi) in m.outer_iter().enumerate() {
-        if active_set
-            .iter()
-            .zip(mi.iter())
-            .fold(false, |acc, (a, mij)| acc || a != mij)
-        {
-            // change actives and x.
-            let new_active_indices = mi
+        let manually_transacted = if (&active_set ^ &mi).iter().any(|el| *el) {
+            let mut s = Array1::zeros(mi.len());
+            let mut t = Array1::zeros(mi.len());
+            active_indices
                 .iter()
-                .enumerate()
-                .filter_map(|(i, &mij)| if mij { Some(i) } else { None })
-                .collect::<Vec<usize>>();
-
-            let (total_sold, n_empty) = active_set.iter().zip(mi.iter()).enumerate().fold(
-                (0f64, new_active_indices.len() - active_indices.len()),
-                |(acc, ((o, n), i))| {
-                    if o && !n {
-                        (acc.0 + x[i], acc.1 + 1)
-                    } else {
-                        acc
-                    }
-                },
-            );
-
-            // TODO replace the elements of x that are invalidated by total_sold/n_empty, verifying that order and size are correct
-            x = {
-                let mut t = Array1::ones(new_active_indices.len()) * total_sold / n_empty as f64;
-                for (i, xi) in active_indices.iter().zip(x.iter()) {
-                    t[i] = xi;
-                }
-                t.iter().zip(mi).filter_map()
-            };
-            active_set
-                .iter()
-                .zip(mi.iter())
-                .enumerate()
-                .filter_map(|((o, n), i)| {
-                    if n {
-                        if o {
-                            x[i]
-                        }
-                    }
+                .zip(x.iter())
+                .zip(y.iter())
+                .for_each(|((&j, &xj), &yj)| {
+                    s[j] = xj;
+                    t[j] = yj;
                 });
-
-            // create warm start for new set and
-            let warm_start_k = new_active_indices.len();
-            let mut x_new = Array1::ones(warm_start_k) / warm_start_k as f64;
-            let mut y_new = Array1::zeros(warm_start_k);
-            y_new[0] = 1f64;
-            // ... do warm start ...
-            let max_start =
-                new_active_indices
-                    .iter()
-                    .fold(0, |acc, &i| if acc < starts[i] { starts[i] } else { acc });
-
-            let warm_start_r = {
-                let mut temp = Array2::zeros((i - max_start, warm_start_k));
-                for (j_, &j) in new_active_indices.iter().enumerate() {
-                    temp.slice_mut(s![.., j_])
-                        .assign(&r.slice(s![max_start..i, j]))
+            let mut total_sold = 0f64;
+            let mut x_transfered = 0f64;
+            let mut new_indices = Vec::new();
+            for (j, (&o, &n)) in active_set.iter().zip(mi.iter()).enumerate() {
+                if o && !n {
+                    total_sold += t[j];
+                } else if !o && n {
+                    new_indices.push(j);
+                } else if o && n {
+                    x_transfered += s[j];
                 }
-                temp
-            };
+            }
+            let uninformed = (1f64 - x_transfered) / new_indices.len() as f64;
+            for j in new_indices {
+                s[j] = uninformed;
+            }
 
-            // reset method
-            method.reset(warm_start_k);
-            for ri in warm_start_r.outer_iter() {
-                let xr = &x_new * &ri;
-                method.step(y_new.view(), x_new.view_mut(), ri)?;
-                y_new.assign(&(&xr / xr.scalar_sum()));
-            }
-            // volume required to alter the strategy:
-            if i > 0 {
-                let mut mock_x = Array1::zeros(n_assets);
-                x.iter()
-                    .zip(&active_indices)
-                    .for_each(|(&xi, &i)| mock_x[i] = xi);
-                let mut mock_y = Array1::zeros(n_assets);
-                x_new
-                    .iter()
-                    .zip(&new_active_indices)
-                    .for_each(|(&yi, &i)| mock_y[i] = yi);
-                let transacted = transaction_cost(mock_x.view(), mock_y.view(), cost)?;
-                out[(i, 2)] = transacted;
-            }
-            x = x_new;
-            y = y_new;
+            active_indices = mi
+                .iter()
+                .enumerate()
+                .filter_map(|(j, &mij)| if mij { Some(j) } else { None })
+                .collect::<Vec<usize>>();
             active_set = mi.to_owned();
-            active_indices = new_active_indices;
-        }
+
+            y = Array1::from_iter(active_indices.iter().map(|&j| t[j]));
+
+            println!("--\n{}", x.scalar_sum());
+            x = Array1::from_iter(active_indices.iter().map(|&j| s[j]));
+            println!("{}", x.scalar_sum());
+            assert!((x.scalar_sum() - 1f64).abs() < 100. * f64::EPSILON);
+
+            method.reset(active_indices.len());
+
+            total_sold
+        } else {
+            0f64
+        };
         // do a step, assume x fits
         let ri = Array1::from_iter(active_indices.iter().map(|&j| r[(i, j)]));
         let step_result =
             StepResult::step(y.view_mut(), x.view_mut(), ri.view(), cost, &mut method)?;
         out[(i, 0)] = step_result.gross_growth;
         out[(i, 1)] = step_result.cash;
-        if out[(i, 2)].is_nan() {
-            // transaction cost haven't been set yet
-            out[(i, 2)] = step_result.transacted;
-        }
+        out[(i, 2)] = step_result.transacted + manually_transacted * cost;
     }
     Ok(out)
 }
