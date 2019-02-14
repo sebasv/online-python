@@ -14,10 +14,12 @@ where
 {
     let (n_obs, n_assets) = m.dim();
     let mut out = Array2::from_elem((n_obs, 3), f64::NAN);
-    let mut x = Array1::zeros(0);
-    let mut y = Array1::zeros(0);
+    let mut x = Array1::ones(1);
+    let mut y = Array1::ones(1);
     let mut active_set = Array1::from_elem(n_assets, false);
+    active_set[0] = true;
     let mut active_indices = Vec::new();
+    active_indices.push(0);
 
     for (i, mi) in m.outer_iter().enumerate() {
         let manually_transacted = if (&active_set ^ &mi).iter().any(|el| *el) {
@@ -32,7 +34,7 @@ where
                     t[j] = yj;
                 });
             let mut total_sold = 0f64;
-            let mut x_transfered = 0f64;
+            let mut x_transferred = 0f64;
             let mut new_indices = Vec::new();
             for (j, (&o, &n)) in active_set.iter().zip(mi.iter()).enumerate() {
                 if o && !n {
@@ -40,10 +42,11 @@ where
                 } else if !o && n {
                     new_indices.push(j);
                 } else if o && n {
-                    x_transfered += s[j];
+                    x_transferred += s[j];
                 }
             }
-            let uninformed = (1f64 - x_transfered) / new_indices.len() as f64;
+
+            let uninformed = (1f64 - x_transferred) / new_indices.len() as f64;
             for j in new_indices {
                 s[j] = uninformed;
             }
@@ -53,14 +56,16 @@ where
                 .enumerate()
                 .filter_map(|(j, &mij)| if mij { Some(j) } else { None })
                 .collect::<Vec<usize>>();
-            active_set = mi.to_owned();
 
             y = Array1::from_iter(active_indices.iter().map(|&j| t[j]));
 
-            println!("--\n{}", x.scalar_sum());
+            y[0] += total_sold * (1f64 - cost);
+            y /= y.scalar_sum();
+
             x = Array1::from_iter(active_indices.iter().map(|&j| s[j]));
-            println!("{}", x.scalar_sum());
-            assert!((x.scalar_sum() - 1f64).abs() < 100. * f64::EPSILON);
+            x /= x.scalar_sum(); // if there are no new indices, the 'uninformed' weight never gets allocated.
+
+            active_set = mi.to_owned();
 
             method.reset(active_indices.len());
 

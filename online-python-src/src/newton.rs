@@ -60,7 +60,6 @@ impl Step for Newton {
     ) -> Result<(), Error> {
         self.t += 1;
         let g = self.grad.grad(y, x.view(), r, self.lambda, self.cost)?;
-        // let g = grad(x.view(), r, self.lambda, self.cost)?;
         self.update_approx_hessian(g.view());
         x -= &(self.approx_hessian_inv.dot(&g) / self.beta);
 

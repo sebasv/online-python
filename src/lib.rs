@@ -334,13 +334,12 @@ impl Newton {
         utility: &str,
     ) -> PyResult<Py<PyArray2<f64>>> {
         let g = grad(utility)?;
-        let n = r.shape()[1];
         to_pyresult_vec(
             op::step_constituents(
                 cost,
                 r.as_array(),
                 m.as_array(),
-                op::Newton::new(beta, max_iter, lambda, cost, g, n),
+                op::Newton::new(beta, max_iter, lambda, cost, g, 1),
             ),
             py,
         )

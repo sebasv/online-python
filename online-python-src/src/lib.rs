@@ -9,6 +9,9 @@ extern crate ndarray;
 extern crate ndarray_linalg;
 use ndarray::prelude::*;
 
+use std::f64;
+use std::ops::Sub;
+
 pub trait Reset {
     fn reset(&mut self, n: usize);
 }
@@ -28,6 +31,32 @@ pub struct StepResult {
     pub cash: f64,
 }
 
+fn validate_input(x: ArrayView1<f64>, y: ArrayView1<f64>) -> Result<(), Error> {
+    let y_sum = y.scalar_sum().sub(1f64).abs();
+    if y_sum > y.len().max(10000) as f64 * f64::EPSILON {
+        panic!(
+            "invalid allocation vector during step: sum(y)={}",
+            y_sum + 1f64
+        );
+    }
+    let x_sum = x.scalar_sum().sub(1f64).abs();
+    if x_sum > x.len().max(10000) as f64 * f64::EPSILON {
+        panic!(
+            "invalid allocation vector during step: sum(x)={}",
+            x_sum + 1f64
+        );
+    }
+    let x_min = x.fold(1f64, |acc, &e| acc.min(e));
+    if x_min < -10000f64 * f64::EPSILON {
+        panic!("invalid allocation vector during step: min(x)={}", x_min);
+    }
+    let y_min = y.fold(1f64, |acc, &e| acc.min(e));
+    if y_min < -10000f64 * f64::EPSILON {
+        panic!("invalid allocation vector during step: min(y)={}", y_min);
+    }
+    Ok(())
+}
+
 impl StepResult {
     pub fn step<S>(
         mut y: ArrayViewMut1<f64>,
@@ -39,6 +68,7 @@ impl StepResult {
     where
         S: Step,
     {
+        validate_input(x.view(), y.view())?;
         // y tracks the actual allocation, x the desired one.
         let transacted = util::transaction_cost(y.view(), x.view(), cost)?;
         let cash = x[0];
