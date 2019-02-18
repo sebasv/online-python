@@ -1,6 +1,7 @@
 use super::Error;
 use ndarray::prelude::*;
 use ndarray_linalg::{FactorizeC, SolveC, UPLO};
+use std::f64;
 
 pub enum Grad {
     /// gradient of
@@ -139,32 +140,36 @@ pub fn project_simplex(mut x: ArrayViewMut1<f64>) -> Result<(), Error> {
     if x.fold(false, |acc, xi| acc || xi.is_nan()) {
         return Err(Error::new("cannot project vector containing nans"));
     }
-    let mut y = x.to_owned();
-    y.as_slice_mut()
-        .ok_or(Error::new("cannot project vector that is not contiguous"))?
-        // .expect("x is not contiguous, slicing failed")
-        .sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
-    // .expect("cannot process nans"));
-    let mut s = y.sum() - 1f64;
-    let mut sub = 0f64;
+    let mut idx = (0..x.len()).collect::<Vec<usize>>();
+    idx.sort_unstable_by(|a, b| x[*a].partial_cmp(&x[*b]).unwrap());
+
+    let mut s = x.sum() - 1f64;
     let mut prev = 0f64;
-    let mut nrem = y.len();
-    for &yi in y.iter() {
-        let diff = yi - prev;
-        if s > diff * nrem as f64 {
-            sub += diff;
-            s -= diff * nrem as f64;
-            prev = yi;
-            nrem -= 1;
+    let mut nrem = x.len();
+    let mut found_turning_point = false;
+    let mut sub = f64::NAN;
+    let mut nonzeros = Vec::new();
+    for &i in idx.iter() {
+        if found_turning_point {
+            sub += x[i] / nrem as f64;
+            nonzeros.push(i);
         } else {
-            sub += s / nrem as f64;
-            break;
+            let diff = x[i] - prev;
+            if s > diff * nrem as f64 {
+                s -= diff * nrem as f64;
+                prev = x[i];
+                nrem -= 1;
+                x[i] = 0f64;
+            } else {
+                sub = (x[i] - 1f64) / nrem as f64;
+                nonzeros.reserve(nrem);
+                nonzeros.push(i);
+                found_turning_point = true;
+            }
         }
     }
-    x.mapv_inplace(|xi| 0f64.max(xi - sub));
-    // for xi in x.iter_mut() {
-    //     *xi = 0f64.max(*xi - sub);
-    // }
+    nonzeros.iter().for_each(|&i| x[i] -= sub);
+
     Ok(())
 }
 
