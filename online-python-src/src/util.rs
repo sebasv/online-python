@@ -145,30 +145,30 @@ pub fn project_simplex(mut x: ArrayViewMut1<f64>) -> Result<(), Error> {
 
     let mut s = x.sum() - 1f64;
     let mut prev = 0f64;
-    let mut nrem = x.len();
-    let mut found_turning_point = false;
-    let mut sub = f64::NAN;
-    let mut nonzeros = Vec::new();
-    for &i in idx.iter() {
-        if found_turning_point {
-            sub += x[i] / nrem as f64;
-            nonzeros.push(i);
+    for (i_idx, &i) in idx.iter().enumerate() {
+        let diff = x[i] - prev;
+        let nrem = x.len() - i_idx;
+        if s > diff * nrem as f64 {
+            s -= diff * nrem as f64;
+            prev = x[i];
+            x[i] = 0f64;
         } else {
-            let diff = x[i] - prev;
-            if s > diff * nrem as f64 {
-                s -= diff * nrem as f64;
+            let iter = idx.iter().skip(i_idx);
+            let sub = iter.clone().fold(-1f64, |acc, &el| {
+                x[el] -= prev;
+                acc + x[el]
+            }) / nrem as f64;
+            if sub > diff {
+                // this can happen due to round-off errors
+                s = (sub - diff) * nrem as f64;
                 prev = x[i];
-                nrem -= 1;
                 x[i] = 0f64;
             } else {
-                sub = (x[i] - 1f64) / nrem as f64;
-                nonzeros.reserve(nrem);
-                nonzeros.push(i);
-                found_turning_point = true;
+                iter.for_each(|&el| x[el] = 0f64.max(x[el] - sub));
+                break;
             }
         }
     }
-    nonzeros.iter().for_each(|&i| x[i] -= sub);
 
     Ok(())
 }
