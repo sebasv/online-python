@@ -13,16 +13,18 @@ where
     M: Reset + Step,
 {
     let (n_obs, n_assets) = m.dim();
-    let mut out = Array2::from_elem((n_obs, 3), f64::NAN);
-    let mut x = Array1::ones(1);
-    let mut y = Array1::ones(1);
-    let mut active_set = Array1::from_elem(n_assets, false);
-    active_set[0] = true;
-    let mut active_indices = Vec::new();
-    active_indices.push(0);
+    let mut out = Array2::zeros((n_obs, 4 + n_assets));
+    let mut reset_count = 0f64;
+    let mut x = Array1::ones(n_assets);
+    x /= n_assets as f64;
+    let mut y = Array1::ones(n_assets);
+    y /= n_assets as f64;
+    let mut active_set = Array1::from_elem(n_assets, true);
+    let mut active_indices: Vec<usize> = (0..n_assets).collect();
 
     for (i, mi) in m.outer_iter().enumerate() {
         let manually_transacted = if (&active_set ^ &mi).iter().any(|el| *el) {
+            reset_count += 1f64;
             let mut s = Array1::zeros(mi.len());
             let mut t = Array1::zeros(mi.len());
             active_indices
@@ -46,7 +48,7 @@ where
                 }
             }
 
-            let uninformed = (1f64 - x_transferred) / new_indices.len() as f64;
+            let uninformed = 0f64.max(1f64 - x_transferred) / new_indices.len() as f64;
             for j in new_indices {
                 s[j] = uninformed;
             }
@@ -67,7 +69,7 @@ where
 
             active_set = mi.to_owned();
 
-            method.reset(active_indices.len());
+            // method.reset(active_indices.len());
 
             total_sold
         } else {
@@ -80,6 +82,10 @@ where
         out[(i, 0)] = step_result.gross_growth;
         out[(i, 1)] = step_result.cash;
         out[(i, 2)] = step_result.transacted + manually_transacted * cost;
+        out[(i, 3)] = reset_count;
+        for (&j, &xj) in active_indices.iter().zip(x.iter()) {
+            out[(i, 4 + j)] = xj;
+        }
     }
     Ok(out)
 }
@@ -95,14 +101,14 @@ where
 {
     // let mut gd = method.reset(x0.len());
     let mut x = x0.to_owned();
-    let mut y = Array1::zeros(x0.len());
-    y[0] = 1f64;
-    let mut out = Array2::zeros((data.shape()[0], 3));
+    let mut y = x0.to_owned();
+    let mut out = Array2::zeros((data.shape()[0], 3 + x0.len()));
     for (r, mut o) in data.outer_iter().zip(out.outer_iter_mut()) {
         let step_result = StepResult::step(y.view_mut(), x.view_mut(), r, cost, &mut method)?;
         o[0] = step_result.gross_growth;
         o[1] = step_result.cash;
         o[2] = step_result.transacted;
+        o.slice_mut(s![3..]).assign(&x);
     }
     Ok(out)
 }
