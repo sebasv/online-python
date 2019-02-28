@@ -22,6 +22,11 @@ pub enum Grad {
     ///     growth - lambda * (growth)^2
     /// never exp-convex
     Quad,
+
+    /// gradient of
+    ///     - growth^2
+    /// (online approach to global minimum variance)
+    Gmv,
 }
 
 impl Grad {
@@ -38,6 +43,7 @@ impl Grad {
             Grad::Quad => Ok(&d_growth * (1f64 - lambda * 2f64 * growth)),
             Grad::Exp => Ok(&d_growth * (-lambda * growth).exp()),
             Grad::Power => Ok(d_growth * growth.powf(-lambda)),
+            Grad::Gmv => Ok(-d_growth * growth),
         }
     }
 }
@@ -66,7 +72,7 @@ pub fn prepare_grad(
     let growth = (1f64 - csa) * xr;
     let d_growth = (1f64 - csa) * (&r + &(&s * cost * xr / (1f64 - cost * s.dot(&x))));
     Ok((growth, d_growth))
-    // Ok((1f64 + growth.ln(), &d_growth / growth))
+    // Ok((growth.ln(), &d_growth / growth))
 }
 
 /// To rebalance fractions w_i to fractions x_i at cost cost, we must subtract

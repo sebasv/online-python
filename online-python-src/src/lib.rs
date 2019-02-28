@@ -5,6 +5,7 @@ mod util;
 
 pub mod prelude;
 
+#[macro_use]
 extern crate ndarray;
 extern crate ndarray_linalg;
 use ndarray::prelude::*;
@@ -32,19 +33,19 @@ pub struct StepResult {
 
 fn validate_input(x: ArrayView1<f64>, y: ArrayView1<f64>) -> Result<(), Error> {
     let x_sum = x.scalar_sum() - 1f64;
-    if x_sum.abs() > x.len().max(10000) as f64 * f64::EPSILON {
+    if x_sum.abs() > x.len().max(100) as f64 * f64::EPSILON {
         panic!("invalid allocation vector during step: sum(x)-1={}", x_sum);
     }
     let x_min = x.fold(1f64, |acc, &e| acc.min(e));
-    if x_min < -10000f64 * f64::EPSILON {
+    if x_min < 0f64 * f64::EPSILON {
         panic!("invalid allocation vector during step: min(x)={}", x_min);
     }
     let y_sum = y.scalar_sum() - 1f64;
-    if y_sum.abs() > y.len().max(10000) as f64 * f64::EPSILON {
+    if y_sum.abs() > y.len().max(100) as f64 * f64::EPSILON {
         panic!("invalid allocation vector during step: sum(y)-1={}", y_sum);
     }
     let y_min = y.fold(1f64, |acc, &e| acc.min(e));
-    if y_min < -10000f64 * f64::EPSILON {
+    if y_min < 00f64 * f64::EPSILON {
         panic!("invalid allocation vector during step: min(y)={}", y_min);
     }
     Ok(())
