@@ -1,6 +1,6 @@
 use super::Error;
 use ndarray::prelude::*;
-use ndarray_linalg::{FactorizeC, SolveC, UPLO};
+use ndarray_linalg::SolveC;
 use std::f64;
 
 pub enum Grad {
@@ -182,129 +182,95 @@ pub fn project_simplex(mut x: ArrayViewMut1<f64>) -> Result<(), Error> {
 /// Calculate the generalized projection of x on the simplex:
 /// returns argmin_y (y-x)'A(y-x) s.t. y>=0, sum(y)=1.
 ///
-/// This is a bare implementation of the barrier method with
-/// trust-region Newton updates and a Lagrange-relaxed equality constraint.
+/// The algorithm is an active set method. The first order conditions of the lagrangian
+///     (y-x)'A(y-x) - lambda(sum(x)-1) - mu'x.
+/// are solved in each iteration, where lambda is always tight and mu is determined based
+/// on the active set from the previous iteration.
 ///
-/// Every iteration, a Newton step is taken on the lagrange-relaxed problem
-/// min_y (y-x)'A(y-x) - m * i'ln(y) - l(i'y - 1)
-/// (with i the all-ones-vector, l the lagrange multiplier and m the barrier method parameter),
-/// where the stepsize is reduced if necessary to ensure y>=0.
-/// Blindly trusting that the error decreased an order of magnitude, m is halved
-/// in the next iteration.
-#[allow(dead_code)]
-pub fn project_simplex_general_old(
-    x: ArrayView1<f64>,
-    pos_def: ArrayView2<f64>,
-    max_iter: usize,
-) -> Result<Array1<f64>, Error> {
-    let k = x.dim();
-    let (k1, k2) = pos_def.dim();
-    if k1 != k || k2 != k {
-        return Err(Error::new(
-            "pos_def must be square and must match the dimensions of x",
-        ));
-    }
-    let iota = Array1::ones(k);
-    let mut y = &iota / k as f64;
-
-    let step = |y: ArrayView1<f64>, m: f64| {
-        let mut g1 = 2f64 * (&y - &x).dot(&pos_def) - m / &y; // - l * &iota;
-        let h = {
-            let mut temp = 2f64 * &pos_def;
-            for idx in 0..k {
-                temp[(idx, idx)] += m * y[idx].powi(-2);
-            }
-            temp.factorizec(UPLO::Upper)
-                .map_err(|_| Error::new(&"could not Choleski H"))?
-        };
-        h.solvec_inplace(&mut g1)
-            .map_err(|_| Error::new(&"could not solve H^{-1} g"))?;
-        let h_inv_i = h
-            .solvec(&iota)
-            .map_err(|_| Error::new(&"could not solve H^{-1} iota"))?;
-        let lambda = g1.scalar_sum() / h_inv_i.scalar_sum();
-        g1.scaled_add(-lambda, &h_inv_i);
-
-        Ok(g1)
-    };
-
-    let mut m = 1f64 / k as f64;
-    let mut y_ = x.to_owned();
-
-    for _ in 0..max_iter {
-        if y.all_close(&y_, 1e-8) {
-            return Ok(y);
-        }
-        let dir = step(y.view(), m)?;
-        let m2 = m.powi(2);
-        // a = min(1, np.min(np.where(y/s>m**2/s, y/s-m**2/s, 1)))
-        let a = y.iter().zip(dir.iter()).fold(1f64, |acc, (&yi, &di)| {
-            if di > 0f64 && yi > m2 && (yi - m2) / di < acc {
-                (yi - m2) / di
-            } else {
-                acc
-            }
-        });
-        y_.assign(&y);
-        y.scaled_add(-a, &dir);
-        if m > 1e-12 {
-            m /= 2f64;
-        }
-    }
-    Err(Error::new(
-        "generalized projection algorithm did not converge on a feasible solution",
-    ))
-}
-
-#[allow(dead_code)]
+/// These foc can be written in the form x = a + B'mu. For the inactive x_i, mu_i is 0.
+/// For the active x_i we must have 0 = a_i + B_{i,:}'mu.
+/// This yields n equations from which mu can be solved, after which x can be solved.
 pub fn project_simplex_general(
     y: ArrayView1<f64>,
     pos_def_inv: ArrayView2<f64>,
     max_iter: usize,
 ) -> Result<Array1<f64>, Error> {
-    let k = y.dim();
-    let (k1, k2) = pos_def_inv.dim();
-    if k1 != k || k2 != k {
+    let n = y.dim();
+    let (n1, n2) = pos_def_inv.dim();
+    if n1 != n || n2 != n {
         return Err(Error::new(
             "pos_def must be square and must match the dimensions of x",
         ));
     }
-    let ipd = pos_def_inv.dot(&Array1::ones(k));
-    let ipd2 = pos_def_inv.dot(&Array2::ones((k, 1)));
+    let ipd = pos_def_inv.dot(&Array1::ones(n));
+    let ipd2 = pos_def_inv.dot(&Array2::ones((n, 1)));
     let ipdi = ipd.scalar_sum();
 
     let a = &y + &((1f64 - y.scalar_sum()) / ipdi * &ipd);
-    let B = &pos_def_inv - &(ipd2.dot(&ipd2.t()) / ipdi);
+    if a.fold(1f64, |acc, &ai| acc.min(ai)) >= 0f64 {
+        // eprintln!("unconstrained problem satisfactory");
+        return Ok(a);
+    }
+    let b = &pos_def_inv - &(ipd2.dot(&ipd2.t()) / ipdi);
 
     // Initialize without the >=0 constraint
-    let mut m = Array1::from_elem(k, false);
+    let mut m = a.mapv(|xi| xi <= 0f64);
     let mut x = a.to_owned();
-
-    for count in 0..max_iter {
-        let m_old = m.to_owned();
-        m = m | x.mapv(f64::is_sign_negative);
-        // Check active constraints and update multipliers
-        if (&m_old ^ &m).fold(true, |a, &e| a && !e) {
-            println!("finished in {} iterations", count);
-            x.mapv_inplace(|xi| 0f64.max(xi));
-            x /= x.scalar_sum();
-            return Ok(x);
-        }
-
+    for _count in 0..max_iter {
         let actives = m
             .iter()
             .enumerate()
             .filter_map(|(i, &mi)| if mi { Some(i) } else { None })
             .collect::<Vec<usize>>();
-        let a_active = Array::from_iter(actives.iter().map(|&i| a[i]));
-        let k_active = actives.len();
-        let B_active =
-            Array::from_shape_fn((k_active, k_active), |(i, j)| B[(actives[i], actives[j])]);
-        let B_row_active = Array::from_shape_fn((k, k_active), |(i, j)| B[(i, actives[j])]);
-        let proj = B_row_active.dot(&B_active.solvec(&a_active).expect("solve failed"));
-        x = &a - &proj;
+        let inactives = m
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &mi)| if !mi { Some(i) } else { None })
+            .collect::<Vec<usize>>();
+        let k = actives.len();
+
+        let a_k = a.select(Axis(0), &actives);
+        // let a_k = Array::from_iter(actives.iter().map(|&i| a[i]));
+        let b_nk = b.select(Axis(1), &actives);
+        let b_kk = b_nk.select(Axis(0), &actives);
+        let b_n_kk = b_nk.select(Axis(0), &inactives);
+        // let b_kk = Array::from_shape_fn((k, k), |(i, j)| b[(actives[i], actives[j])]);
+        // let b_n_kk = Array::from_shape_fn((n - k, k), |(i, j)| b[(inactives[i], actives[j])]);
+
+        let mu = b_kk.solvec(&a_k).unwrap_or_else(|_| {
+            panic!(
+                "could not solve the active-set lagrange multipliers: {}",
+                b_kk,
+            )
+        });
+
+        let proj = b_n_kk.dot(&mu);
+
+        // set the xi with active constraints 0
+        actives.iter().for_each(|&i| x[i] = 0f64);
+        // set the xi with inactice constraints to their calculated value
+        inactives
+            .iter()
+            .zip(proj.iter())
+            .for_each(|(&i, &pi)| x[i] = a[i] - pi);
+
+        // Check the KKT conditions: primal && dual feasibility
+        if x.fold(1f64, |acc, &xi| acc.min(xi)) >= 0f64
+            && mu.fold(-1f64, |acc, &mui| acc.max(mui)) <= 0f64
+        {
+            // eprintln!("finished in {} iterations", count);
+            return Ok(x);
+        }
+
+        // update the active set: Take all the xi that are at their constraint or violate the constraint
+        m = x.mapv(|xi| xi <= 0f64);
+        // remove those elements from the active set with invalid lagrange multipliers
+        actives
+            .iter()
+            .zip(mu.iter())
+            .for_each(|(&i, &mui)| m[i] &= mui <= 0f64);
     }
-    println!("reached max count");
+    eprintln!("reached max count");
     Ok(x)
 }
 
