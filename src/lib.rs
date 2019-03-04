@@ -115,9 +115,9 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
             .map_err(PyErr::from)
     }
 
-    /// fn project_simplex_general(x, pos_def, max_iter)
+    /// fn project_simplex_general(x, pos_def_inv, max_iter)
     /// x: vector to be projected
-    /// pos_def: the projection matrix (which should be positive definite)
+    /// pos_def_inv: the inverted projection matrix (which should be positive definite)
     /// max_iter: the maximum number of iterations before the projection attempt is terminated
     #[pyfn(m, "project_simplex_general")]
     fn project_simplex_general_py(

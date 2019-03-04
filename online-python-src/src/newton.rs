@@ -67,7 +67,7 @@ impl Step for Newton {
         // but solves a numerical issue where the elements of approx_hessian grow too large
         let projected = project_simplex_general(
             x.view(),
-            (&self.approx_hessian / self.t as f64).view(),
+            (&self.approx_hessian_inv * self.t as f64).view(),
             self.max_iter,
         )?;
         x.assign(&projected);

@@ -202,8 +202,8 @@ pub fn project_simplex_general(
             "pos_def must be square and must match the dimensions of x",
         ));
     }
-    let ipd = pos_def_inv.dot(&Array1::ones(n));
-    let ipd2 = pos_def_inv.dot(&Array2::ones((n, 1)));
+    let ipd = pos_def_inv.sum_axis(Axis(1)); //dot(&Array1::ones(n));
+    let ipd2 = ipd.to_owned().insert_axis(Axis(1)); //pos_def_inv.dot(&Array2::ones((n, 1)));
     let ipdi = ipd.scalar_sum();
 
     let a = &y + &((1f64 - y.scalar_sum()) / ipdi * &ipd);
@@ -211,6 +211,7 @@ pub fn project_simplex_general(
         // eprintln!("unconstrained problem satisfactory");
         return Ok(a);
     }
+    let a_sum = a.scalar_sum();
     let b = &pos_def_inv - &(ipd2.dot(&ipd2.t()) / ipdi);
 
     // Initialize without the >=0 constraint
@@ -227,38 +228,35 @@ pub fn project_simplex_general(
             .enumerate()
             .filter_map(|(i, &mi)| if !mi { Some(i) } else { None })
             .collect::<Vec<usize>>();
-        let k = actives.len();
 
         let a_k = a.select(Axis(0), &actives);
-        // let a_k = Array::from_iter(actives.iter().map(|&i| a[i]));
         let b_nk = b.select(Axis(1), &actives);
         let b_kk = b_nk.select(Axis(0), &actives);
         let b_n_kk = b_nk.select(Axis(0), &inactives);
-        // let b_kk = Array::from_shape_fn((k, k), |(i, j)| b[(actives[i], actives[j])]);
-        // let b_n_kk = Array::from_shape_fn((n - k, k), |(i, j)| b[(inactives[i], actives[j])]);
 
-        let mu = b_kk.solvec(&a_k).unwrap_or_else(|_| {
+        let mu = b_kk.solvec(&a_k).unwrap_or_else(|e| {
             panic!(
-                "could not solve the active-set lagrange multipliers: {}",
-                b_kk,
+                "could not solve the active-set lagrange multipliers: {}\n{}\n{}",
+                e, b_kk, a_k,
             )
         });
 
         let proj = b_n_kk.dot(&mu);
+        let correction = (1f64 - a_sum + a_k.scalar_sum() + proj.scalar_sum()) / proj.len() as f64;
 
         // set the xi with active constraints 0
         actives.iter().for_each(|&i| x[i] = 0f64);
         // set the xi with inactice constraints to their calculated value
+        // Apply a correction to counter round-off errors in the matrix inversion etc
         inactives
             .iter()
             .zip(proj.iter())
-            .for_each(|(&i, &pi)| x[i] = a[i] - pi);
+            .for_each(|(&i, &pi)| x[i] = a[i] - pi + correction);
 
         // Check the KKT conditions: primal && dual feasibility
         if x.fold(1f64, |acc, &xi| acc.min(xi)) >= 0f64
             && mu.fold(-1f64, |acc, &mui| acc.max(mui)) <= 0f64
         {
-            // eprintln!("finished in {} iterations", count);
             return Ok(x);
         }
 
