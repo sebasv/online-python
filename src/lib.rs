@@ -153,6 +153,7 @@ fn online_python(_py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_class::<GradientDescent>()?;
     m.add_class::<Newton>()?;
+    m.add_class::<GMV>()?;
 
     Ok(())
 }
@@ -166,6 +167,45 @@ fn grad(utility: &str) -> PyResult<op::Grad> {
         _ => Err(PyErr::new::<pyo3::exceptions::ValueError, _>(
             "Did not recognise utility function. Pick one of {'power','exp','quad'}",
         )),
+    }
+}
+
+#[pyclass]
+struct GMV {
+    // op: op::GMV,
+}
+
+#[pymethods]
+impl GMV {
+    /// GMV(epsilon, max_iter, n)
+    #[new]
+    fn __new__(obj: &PyRawObject, eps: f64, max_iter: usize, n: usize) -> PyResult<()> {
+        obj.init(|_| GMV {
+            // op: op::GMV::new(eps, max_iter, n),
+        })
+    }
+
+    /// fn step_all(eps, cost, x0, data, max_iter) -> results
+    /// results: [growth, bank account, transacted]
+    #[staticmethod]
+    fn step_all(
+        py: Python,
+        eps: f64,
+        cost: f64,
+        x0: &PyArray1<f64>,
+        data: &PyArray2<f64>,
+        max_iter: usize,
+    ) -> PyResult<Py<PyArray2<f64>>> {
+        let n = data.dims()[1];
+        to_pyresult_vec(
+            op::step_all(
+                cost,
+                x0.as_array(),
+                data.as_array(),
+                op::GMV::new(eps, max_iter, n),
+            ),
+            py,
+        )
     }
 }
 

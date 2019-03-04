@@ -1,5 +1,6 @@
 pub use crate::{Error, StepResult};
 
+pub use crate::global_minimum_variance::GMV;
 pub use crate::gradient_descent::GradientDescent;
 pub use crate::newton::Newton;
 pub use crate::processors::{step_all, step_constituents, step_constituents_fixed};

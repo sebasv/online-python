@@ -1,3 +1,4 @@
+mod global_minimum_variance;
 mod gradient_descent;
 mod newton;
 mod processors;
