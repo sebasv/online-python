@@ -162,6 +162,7 @@ fn grad(utility: &str) -> PyResult<op::Grad> {
         "power" => Ok(op::Grad::Power),
         "exp" => Ok(op::Grad::Exp),
         "quad" => Ok(op::Grad::Quad),
+        "gmv" => Ok(op::Grad::Gmv),
         _ => Err(PyErr::new::<pyo3::exceptions::ValueError, _>(
             "Did not recognise utility function. Pick one of {'power','exp','quad'}",
         )),

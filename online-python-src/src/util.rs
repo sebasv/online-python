@@ -22,6 +22,11 @@ pub enum Grad {
     ///     growth - lambda * (growth)^2
     /// never exp-convex
     Quad,
+
+    /// gradient of
+    ///     - growth^2
+    /// (online approach to global minimum variance)
+    Gmv,
 }
 
 impl Grad {
@@ -38,6 +43,7 @@ impl Grad {
             Grad::Quad => Ok(&d_growth * (1f64 - lambda * 2f64 * growth)),
             Grad::Exp => Ok(&d_growth * (-lambda * growth).exp()),
             Grad::Power => Ok(d_growth * growth.powf(-lambda)),
+            Grad::Gmv => Ok(-d_growth * growth),
         }
     }
 }
@@ -66,7 +72,7 @@ pub fn prepare_grad(
     let growth = (1f64 - csa) * xr;
     let d_growth = (1f64 - csa) * (&r + &(&s * cost * xr / (1f64 - cost * s.dot(&x))));
     Ok((growth, d_growth))
-    // Ok((1f64 + growth.ln(), &d_growth / growth))
+    // Ok((growth.ln(), &d_growth / growth))
 }
 
 /// To rebalance fractions w_i to fractions x_i at cost cost, we must subtract
@@ -188,7 +194,8 @@ pub fn project_simplex(mut x: ArrayViewMut1<f64>) -> Result<(), Error> {
 /// where the stepsize is reduced if necessary to ensure y>=0.
 /// Blindly trusting that the error decreased an order of magnitude, m is halved
 /// in the next iteration.
-pub fn project_simplex_general(
+#[allow(dead_code)]
+pub fn project_simplex_general_old(
     x: ArrayView1<f64>,
     pos_def: ArrayView2<f64>,
     max_iter: usize,
@@ -250,6 +257,58 @@ pub fn project_simplex_general(
     Err(Error::new(
         "generalized projection algorithm did not converge on a feasible solution",
     ))
+}
+
+#[allow(dead_code)]
+pub fn project_simplex_general(
+    y: ArrayView1<f64>,
+    pos_def_inv: ArrayView2<f64>,
+    max_iter: usize,
+) -> Result<Array1<f64>, Error> {
+    let k = y.dim();
+    let (k1, k2) = pos_def_inv.dim();
+    if k1 != k || k2 != k {
+        return Err(Error::new(
+            "pos_def must be square and must match the dimensions of x",
+        ));
+    }
+    let ipd = pos_def_inv.dot(&Array1::ones(k));
+    let ipd2 = pos_def_inv.dot(&Array2::ones((k, 1)));
+    let ipdi = ipd.scalar_sum();
+
+    let a = &y + &((1f64 - y.scalar_sum()) / ipdi * &ipd);
+    let B = &pos_def_inv - &(ipd2.dot(&ipd2.t()) / ipdi);
+
+    // Initialize without the >=0 constraint
+    let mut m = Array1::from_elem(k, false);
+    let mut x = a.to_owned();
+
+    for count in 0..max_iter {
+        let m_old = m.to_owned();
+        m = m | x.mapv(f64::is_sign_negative);
+        // Check active constraints and update multipliers
+        if (&m_old ^ &m).fold(true, |a, &e| a && !e) {
+            println!("finished in {} iterations", count);
+            x.mapv_inplace(|xi| 0f64.max(xi));
+            x /= x.scalar_sum();
+            return Ok(x);
+        }
+
+        let actives = m
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &mi)| if mi { Some(i) } else { None })
+            .collect::<Vec<usize>>();
+        let a_active = Array::from_iter(actives.iter().map(|&i| a[i]));
+        let k_active = actives.len();
+        let B_active =
+            Array::from_shape_fn((k_active, k_active), |(i, j)| B[(actives[i], actives[j])]);
+        let B_row_active = Array::from_shape_fn((k, k_active), |(i, j)| B[(i, actives[j])]);
+        let proj = B_row_active.dot(&B_active.solvec(&a_active).expect("solve failed"));
+        x = &a - &proj;
+    }
+    println!("reached max count");
+    Ok(x)
 }
 
 #[cfg(test)]
