@@ -158,31 +158,34 @@ pub fn project_simplex(mut x: ArrayViewMut1<f64>) -> Result<(), Error> {
 
     let mut s = x.sum() - 1f64;
     let mut prev = 0f64;
-    for (i_idx, &i) in idx.iter().enumerate() {
+    let mut nrem = x.len();
+    let mut iter = idx.iter();
+    let mut kahan = 0f64;
+    while let Some(&i) = iter.next() {
         let diff = x[i] - prev;
-        let nrem = x.len() - i_idx;
-        if s > diff * nrem as f64 {
-            s -= diff * nrem as f64;
+        if s + kahan > diff * nrem as f64 {
+            {
+                // kahan summation
+                let y = -diff * nrem as f64;
+                let t = s + y;
+                kahan += if s.abs() > y.abs() {
+                    (s - t) + y
+                } else {
+                    (y - t) + s
+                };
+                s = t;
+            }
             prev = x[i];
+            nrem -= 1;
             x[i] = 0f64;
         } else {
-            let iter = idx.iter().skip(i_idx);
-            let sub = iter.clone().fold(-1f64, |acc, &el| {
-                x[el] -= prev;
-                acc + x[el]
-            }) / nrem as f64;
-            if sub > diff {
-                // this can happen due to round-off errors
-                s = (sub - diff) * nrem as f64;
-                prev = x[i];
-                x[i] = 0f64;
-            } else {
-                iter.for_each(|&el| x[el] = 0f64.max(x[el] - sub));
-                break;
+            let sub = iter.clone().fold(x[i] - 1f64, |acc, &ii| acc + x[ii]) / nrem as f64;
+            x[i] = 0f64.max(x[i] - sub);
+            while let Some(&i) = iter.next() {
+                x[i] = 0f64.max(x[i] - sub);
             }
         }
     }
-
     Ok(())
 }
 
