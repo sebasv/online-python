@@ -27,6 +27,11 @@ pub enum Grad {
     ///     - growth^2
     /// (online approach to global minimum variance)
     Gmv,
+
+    /// gradient of
+    ///     growth
+    /// the risk-neutral grower.
+    Lin,
 }
 
 impl Grad {
@@ -41,9 +46,11 @@ impl Grad {
         let (growth, d_growth) = prepare_grad(y, x, r, lambda, cost)?;
         match self {
             Grad::Quad => Ok(&d_growth * (1f64 - lambda * 2f64 * growth)),
+            Grad::Gmv => Ok(-d_growth * growth),
+            Grad::Lin => Ok(d_growth),
+            // what are these even?
             Grad::Exp => Ok(&d_growth * (-lambda * growth).exp()),
             Grad::Power => Ok(d_growth * growth.powf(-lambda)),
-            Grad::Gmv => Ok(-d_growth * growth),
         }
     }
 }
@@ -71,8 +78,8 @@ pub fn prepare_grad(
     let csa = cost * s.dot(&a);
     let growth = (1f64 - csa) * xr;
     let d_growth = (1f64 - csa) * (&r + &(&s * cost * xr / (1f64 - cost * s.dot(&x))));
-    Ok((growth, d_growth))
-    // Ok((growth.ln(), &d_growth / growth))
+    // Ok((growth, d_growth))
+    Ok((growth.ln(), &d_growth / growth))
 }
 
 /// To rebalance fractions w_i to fractions x_i at cost cost, we must subtract
