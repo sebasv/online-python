@@ -13,6 +13,10 @@ where
     M: Reset + Step,
 {
     let (n_obs, n_assets) = m.dim();
+    if r.dim().0 != n_obs || r.dim().1 != n_assets {
+        return Err(Error::new("dimensions of r and m must agree"));
+    }
+
     let mut out = Array2::zeros((n_obs, 4 + n_assets));
     let mut reset_count = 0f64;
     let mut x = Array1::ones(n_assets);
@@ -99,6 +103,9 @@ pub fn step_all<M>(
 where
     M: Reset + Step,
 {
+    if x0.len() != data.dim().1 {
+        return Err(Error::new("dimensions of data and x0 must agree"));
+    }
     // let mut gd = method.reset(x0.len());
     let mut x = x0.to_owned();
     let mut y = x0.to_owned();
@@ -120,6 +127,9 @@ pub fn step_constituents_fixed(
     m: ArrayView2<bool>,
 ) -> Result<Array2<f64>, Error> {
     let (n_obs, n_assets) = m.dim();
+    if r.dim().0 != n_obs || r.dim().1 != n_assets || x0.len() != n_assets {
+        return Err(Error::new("dimensions of r, m and x0 must agree"));
+    }
     let mut out = Array2::ones((n_obs, 3));
     let mut x = Array1::from_elem(0, 0f64);
     let mut active_set = Array1::from_elem(n_assets, false);
