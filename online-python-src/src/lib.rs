@@ -63,7 +63,7 @@ impl StepResult {
     where
         S: Step,
     {
-        validate_input(x.view(), y.view())?;
+        // validate_input(x.view(), y.view())?;
         // y tracks the actual allocation, x the desired one.
         let transacted = util::transaction_cost(y.view(), x.view(), cost)?;
         let cash = x[0];

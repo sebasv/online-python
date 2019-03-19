@@ -7,17 +7,19 @@ pub struct GMV {
     mean: Array1<f64>,
     max_iter: usize,
     eps: f64,
+    positive: bool,
     t: usize,
 }
 
 impl GMV {
-    pub fn new(eps: f64, max_iter: usize, n: usize) -> GMV {
+    pub fn new(eps: f64, max_iter: usize, n: usize, positive: bool) -> GMV {
         GMV {
             cov_inv: Array2::eye(n) / eps,
             mean: Array1::zeros(n),
             max_iter,
             t: 0,
             eps,
+            positive,
         }
     }
 
@@ -58,11 +60,16 @@ impl Step for GMV {
 
         // divide the appprox-hessian by t. Does not theoretically alter the results,
         // but solves a numerical issue where the elements of approx_hessian grow too large
-        let projected = project_simplex_general(
-            Array1::zeros(self.cov_inv.dim().0).view(),
-            self.cov_inv.view(),
-            self.max_iter,
-        )?;
+        let projected = if self.positive {
+            project_simplex_general(
+                Array1::zeros(self.cov_inv.dim().0).view(),
+                self.cov_inv.view(),
+                self.max_iter,
+            )?
+        } else {
+            let t = self.cov_inv.dot(&Array1::ones(self.cov_inv.dim().0));
+            &t / t.scalar_sum()
+        };
         x.assign(&projected);
         Ok(())
     }

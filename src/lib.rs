@@ -180,18 +180,19 @@ struct GMV {
 impl GMV {
     /// GMV(epsilon, max_iter, n)
     #[new]
-    fn __new__(obj: &PyRawObject, eps: f64, max_iter: usize, n: usize) -> PyResult<()> {
+    fn __new__(obj: &PyRawObject) -> PyResult<()> {
         obj.init(|_| GMV {
             // op: op::GMV::new(eps, max_iter, n),
         })
     }
 
-    /// fn step_all(eps, cost, x0, data, max_iter) -> results
+    /// fn step_all(eps, positive, cost, x0, data, max_iter) -> results
     /// results: [growth, bank account, transacted]
     #[staticmethod]
     fn step_all(
         py: Python,
         eps: f64,
+        positive: bool,
         cost: f64,
         x0: &PyArray1<f64>,
         data: &PyArray2<f64>,
@@ -203,7 +204,7 @@ impl GMV {
                 cost,
                 x0.as_array(),
                 data.as_array(),
-                op::GMV::new(eps, max_iter, n),
+                op::GMV::new(eps, max_iter, n, positive),
             ),
             py,
         )
