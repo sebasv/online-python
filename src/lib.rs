@@ -219,7 +219,7 @@ struct GradientDescent {
 
 #[pymethods]
 impl GradientDescent {
-    /// GradientDescent(alpha, gamma, cost, utility)
+    /// GradientDescent(alpha, gamma, cost, utility, min_step)
     #[new]
     fn __new__(
         obj: &PyRawObject,
@@ -227,10 +227,11 @@ impl GradientDescent {
         lambda: f64,
         cost: f64,
         utility: &str,
+        min_step: f64,
     ) -> PyResult<()> {
         let g = grad(utility)?;
         obj.init(|_| GradientDescent {
-            gd: op::GradientDescent::new(alpha, lambda, cost, g),
+            gd: op::GradientDescent::new(alpha, lambda, cost, g, min_step),
             cost,
         })
     }
@@ -255,7 +256,7 @@ impl GradientDescent {
         )
     }
 
-    /// fn step_constituents(a, lambda, x0, r, m, method, utility) -> out
+    /// fn step_constituents(a, lambda, x0, r, m, method, utility, min_step) -> out
     /// a: alpha-exp-concavity (1)
     /// lambda: risk aversion
     /// data: matrix of rows of return data
@@ -270,6 +271,7 @@ impl GradientDescent {
         r: &PyArray2<f64>,
         m: &PyArray2<bool>,
         utility: &str,
+        min_step: f64,
     ) -> PyResult<Py<PyArray2<f64>>> {
         let g = grad(utility)?;
         to_pyresult_vec(
@@ -277,13 +279,13 @@ impl GradientDescent {
                 cost,
                 r.as_array(),
                 m.as_array(),
-                op::GradientDescent::new(a, lambda, cost, g),
+                op::GradientDescent::new(a, lambda, cost, g, min_step),
             ),
             py,
         )
     }
 
-    /// fn step_all(a,lambda, cost, x0, data, utility) -> results
+    /// fn step_all(a,lambda, cost, x0, data, utility, min_step) -> results
     /// a: alpha-exp-concavity (1)
     /// lambda: risk aversion
     /// x0: starting allocation
@@ -298,6 +300,7 @@ impl GradientDescent {
         x0: &PyArray1<f64>,
         data: &PyArray2<f64>,
         utility: &str,
+        min_step: f64,
     ) -> PyResult<Py<PyArray2<f64>>> {
         let g = grad(utility)?;
         to_pyresult_vec(
@@ -305,7 +308,7 @@ impl GradientDescent {
                 cost,
                 x0.as_array(),
                 data.as_array(),
-                op::GradientDescent::new(a, lambda, cost, g),
+                op::GradientDescent::new(a, lambda, cost, g, min_step),
             ),
             py,
         )
